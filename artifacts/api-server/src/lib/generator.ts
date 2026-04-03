@@ -298,6 +298,9 @@ interface AIResult {
   category: string;
   tags: string[];
   content: string;
+  tokensPrompt: number;
+  tokensCompletion: number;
+  tokensTotal: number;
 }
 
 async function callAI(keyword: string, language: string, wordCount: number, settings: any): Promise<AIResult> {
@@ -386,11 +389,16 @@ Return ONLY the JSON object.`;
   }
 
   const data = await response.json() as any;
+
+  const tokensPrompt = Number(data.usage?.prompt_tokens || 0);
+  const tokensCompletion = Number(data.usage?.completion_tokens || 0);
+  const tokensTotal = Number(data.usage?.total_tokens || 0);
+
   let raw = (data.choices?.[0]?.message?.content || "").trim();
 
   raw = raw.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "").trim();
 
-  let parsed: AIResult;
+  let parsed: Omit<AIResult, "tokensPrompt" | "tokensCompletion" | "tokensTotal">;
   try {
     parsed = JSON.parse(raw);
   } catch {
@@ -425,7 +433,7 @@ Return ONLY the JSON object.`;
     parsed.metaDescription = parsed.metaDescription.substring(0, 152) + "...";
   }
 
-  return parsed;
+  return { ...parsed, tokensPrompt, tokensCompletion, tokensTotal };
 }
 
 async function publishToWordPress(
@@ -613,6 +621,9 @@ async function generateArticle(articleId: number): Promise<void> {
           featuredImageUrl,
           publishedUrl,
           publishedAt: publishNow ? new Date() : null,
+          tokensPrompt: aiResult.tokensPrompt || null,
+          tokensCompletion: aiResult.tokensCompletion || null,
+          tokensTotal: aiResult.tokensTotal || null,
         }).where(eq(articlesTable.id, articleId));
 
         await db.update(sitesTable).set({ status: "connected" }).where(eq(sitesTable.id, site.id));
@@ -623,6 +634,9 @@ async function generateArticle(articleId: number): Promise<void> {
     await db.update(articlesTable).set({
       status: "draft",
       featuredImageUrl,
+      tokensPrompt: aiResult.tokensPrompt || null,
+      tokensCompletion: aiResult.tokensCompletion || null,
+      tokensTotal: aiResult.tokensTotal || null,
     }).where(eq(articlesTable.id, articleId));
 
   } catch (err: any) {
