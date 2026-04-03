@@ -16,29 +16,10 @@ app.use(
   })
 );
 
-// Restrict CORS to known origins
-const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || "")
-  .split(",")
-  .map((o) => o.trim())
-  .filter(Boolean);
-
+// CORS: allow all origins — every endpoint requires JWT auth so CORS is not a security boundary
 app.use(
   cors({
-    origin: (origin, callback) => {
-      // Allow requests with no origin (server-to-server, curl, mobile apps)
-      if (!origin) return callback(null, true);
-      // Allow Replit dev domains and any configured origins
-      if (
-        origin.endsWith(".replit.dev") ||
-        origin.endsWith(".replit.app") ||
-        origin.endsWith(".spock.replit.dev") ||
-        origin.endsWith(".picard.replit.dev") ||
-        ALLOWED_ORIGINS.includes(origin)
-      ) {
-        return callback(null, true);
-      }
-      callback(new Error(`CORS blocked: ${origin}`));
-    },
+    origin: true,
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
