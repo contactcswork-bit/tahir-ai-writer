@@ -302,32 +302,69 @@ interface AIResult {
 
 async function callAI(keyword: string, language: string, wordCount: number, settings: any): Promise<AIResult> {
   const apiKey = settings?.longcatApiKey || "ak_23V6tb6f04Vq4m030D2SA74N0EW1a";
-  const model = settings?.longcatModel || "LongCat-Flash-Chat";
+  const model = settings?.longcatModel || "LongCat-Flash-Thinking-2601";
   const url = "https://api.longcat.chat/openai/v1/chat/completions";
 
   const langInstruction = language.toLowerCase() === "english"
     ? "Write entirely in English."
     : `Write ENTIRELY in ${language}. Every word — title, meta description, tags, category, and article body — must be in ${language}. Do not use English anywhere.`;
 
-  const targetTokens = Math.min(Math.max(Math.round(wordCount * 2.2), 2000), 6000);
+  // Use generous tokens — no credit limits, prioritize quality
+  const targetTokens = Math.max(Math.round(wordCount * 3.5), 8000);
 
-  const prompt = `You are an expert SEO content writer. Write a blog article about "${keyword}".
+  const prompt = `You are a senior SEO content strategist and expert writer with 15 years of experience ranking articles on Google. Write a comprehensive, authoritative blog article about "${keyword}".
 ${langInstruction}
 
-Respond with ONLY a JSON object — no text before or after, no markdown fences:
+Respond with ONLY a valid JSON object — no text before or after, no markdown fences:
 
 {"title":"...","metaDescription":"...","category":"...","tags":["...","...","...","...","..."],"content":"..."}
 
-RULES:
-- title: CRITICAL — the title MUST contain the EXACT keyword phrase "${keyword}" verbatim, word-for-word, without shortening, paraphrasing, or reordering. Simply add 2-5 SEO power words (e.g., "Best", "Proven", "Ultimate", "Complete", "Essential", "Expert", "Top", "Effective", "Powerful", "Simple") before or after the exact keyword phrase so the full title is 10-15 words. No years (2024/2025/2026). No clichés like "dive into" or "unleash". Example: if keyword is "blue running shoes for men", a valid title is "Best Blue Running Shoes for Men That Deliver Proven Results"
-- metaDescription: under 155 chars, includes keyword, compelling
-- category: a SPECIFIC, topic-based category derived directly from the keyword (e.g., "Kitchen Appliances", "Digital Marketing", "Weight Loss", "Python Programming", "Personal Finance"). NEVER use generic names like "Blog", "General", "Uncategorized", "News", "Articles", or "Posts"
-- tags: exactly 5, mix of broad and specific, short phrases
-- content: ~${wordCount} words of HTML; start with <h2> (no <h1>); 3-4 H2 sections with optional H3s; short paragraphs (2-3 sentences); at least 2 lists <ul><li>; bold key terms <strong>; 1-2 external links to real authoritative sources (Wikipedia, official sites — NO example.com, NO placeholder URLs); use "${keyword}" naturally in intro, one H2, and 3-5 times total; end with conclusion H2
-- current year is 2026
-- NO placeholder links, NO example.com, NO fake URLs
+=== TITLE RULES (CRITICAL) ===
+The title MUST contain the EXACT keyword phrase "${keyword}" verbatim, word-for-word, without shortening, paraphrasing, or reordering any words. Add 2-5 powerful SEO words (e.g., "Best", "Proven", "Ultimate", "Complete", "Expert", "Top", "Effective", "Essential") before or after to make the full title 10-15 words. No years. No clichés like "dive into" or "unleash".
+Example: keyword "blue running shoes for men" → title "Best Blue Running Shoes for Men That Deliver Proven Performance"
 
-Return ONLY the JSON.`;
+=== META DESCRIPTION ===
+Under 155 characters. Include "${keyword}" naturally. Make it compelling and action-driven to improve click-through rate.
+
+=== CATEGORY ===
+A SPECIFIC, topic-based category derived directly from the keyword (e.g., "Kitchen Appliances", "Digital Marketing", "Weight Loss"). NEVER use: Blog, General, Uncategorized, News, Articles, Posts.
+
+=== TAGS ===
+Exactly 5 tags — mix of broad topic, specific niche, and long-tail variations of the keyword.
+
+=== CONTENT (HIGH QUALITY REQUIREMENTS) ===
+Write ~${wordCount} words of clean, semantic HTML. This must read like an expert-authored article, NOT generic AI content.
+
+STRUCTURE:
+1. Opening paragraph (NO heading) — hook the reader with a bold statement, surprising stat, or relatable problem. Naturally include "${keyword}" in the first 2 sentences. Promise what the reader will learn. 3-4 sentences.
+2. 5-7 <h2> sections covering the topic thoroughly — each with 3-4 meaty paragraphs (4-6 sentences each). Go deep, not shallow.
+3. At least one <h2> heading must naturally contain "${keyword}" verbatim.
+4. Under at least 2 <h2>s, add 2-3 <h3> sub-sections for depth.
+5. Include at least ONE HTML table (<table><thead><tr><th>…</th></tr></thead><tbody>…</tbody></table>) — for comparison, pros/cons, quick reference, or key stats.
+6. Include a dedicated <h2>Frequently Asked Questions</h2> section with 4-5 Q&A pairs using <h3> for each question and <p> for the answer.
+7. At least 2 <ul> bullet lists AND at least 1 <ol> numbered list.
+8. Use <blockquote> for 1-2 key expert tips or important callouts.
+9. Bold important terms and phrases with <strong>.
+10. 1-2 external links to genuinely real, authoritative sources (Wikipedia, government sites, major publications — NEVER example.com or fake URLs). Use descriptive anchor text.
+11. End with a <h2>Final Thoughts</h2> (or equivalent) section summarizing key takeaways and a clear call-to-action for the reader.
+
+WRITING QUALITY:
+- Write like a real expert who deeply understands this topic — add specific details, nuance, and insights
+- Vary sentence length and structure — mix short punchy sentences with longer explanatory ones
+- Use transition phrases between paragraphs for smooth flow
+- Include specific examples, scenarios, or use cases to illustrate points
+- Avoid filler phrases: "In today's world", "In conclusion", "It is worth noting", "It goes without saying"
+- NEVER use: "${keyword}" more than 6 times total (avoid keyword stuffing)
+- Use LSI keywords and natural semantic variations of the topic
+- Current year is 2026
+
+FORBIDDEN:
+- No placeholder links, no example.com, no fake URLs
+- No H1 tags (WordPress adds the title as H1)
+- No keyword stuffing
+- No thin, vague, or generic paragraphs
+
+Return ONLY the JSON object.`;
 
   const response = await fetch(url, {
     method: "POST",
@@ -339,7 +376,7 @@ Return ONLY the JSON.`;
       model,
       messages: [{ role: "user", content: prompt }],
       max_tokens: targetTokens,
-      temperature: 0.7,
+      temperature: 0.65,
     }),
   });
 
@@ -507,7 +544,7 @@ async function generateArticle(articleId: number): Promise<void> {
 
   try {
     const language = article.language || "english";
-    const wordCount = article.wordCount || 800;
+    const wordCount = article.wordCount || 1500;
     const publishNow = article.publishNow === 1;
 
     let imageUrlPromise: Promise<string | null> = Promise.resolve(null);
