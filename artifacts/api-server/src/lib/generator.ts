@@ -375,8 +375,11 @@ async function publishToWordPress(
     excerpt: aiResult.metaDescription,
     slug,
     status: wpStatus,
-    // Yoast SEO and Rank Math meta included in initial POST
+    // Yoast SEO: internal storage key is _yoast_wpseo_metadesc (private, with underscore).
+    // WordPress REST API allows setting private meta IF Yoast registers it with show_in_rest:true.
+    // We include both key variants to cover all Yoast versions.
     meta: {
+      _yoast_wpseo_metadesc: aiResult.metaDescription,
       yoast_wpseo_metadesc: aiResult.metaDescription,
       rank_math_description: aiResult.metaDescription,
     },
@@ -404,33 +407,40 @@ async function publishToWordPress(
   const postId: number = post.id;
   const postLink: string = post.link || `${siteUrl}/?p=${postId}`;
 
-  // Secondary update: PUT with Yoast meta to ensure it's picked up by Yoast SEO
+  // Secondary update: send meta again via POST to the post endpoint
+  // Yoast reads _yoast_wpseo_metadesc (private key with underscore).
+  // WordPress allows setting private meta if Yoast registers it with show_in_rest:true.
   try {
-    const patchPayload: any = {
+    const updatePayload: any = {
       meta: {
+        _yoast_wpseo_metadesc: aiResult.metaDescription,
         yoast_wpseo_metadesc: aiResult.metaDescription,
         rank_math_description: aiResult.metaDescription,
       },
     };
-    // Re-affirm featured_media in the update (some WP setups need it set twice)
-    if (featuredMediaId) patchPayload.featured_media = featuredMediaId;
+    if (featuredMediaId) updatePayload.featured_media = featuredMediaId;
 
-    const patchRes = await fetch(`${siteUrl}/wp-json/wp/v2/posts/${postId}`, {
-      method: "PUT",
+    const updateRes = await fetch(`${siteUrl}/wp-json/wp/v2/posts/${postId}`, {
+      method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Basic ${credentials}`,
       },
-      body: JSON.stringify(patchPayload),
+      body: JSON.stringify(updatePayload),
     });
-    if (!patchRes.ok) {
-      const patchErr = await patchRes.text();
-      logger.warn({ patchErr, postId }, "Yoast meta PUT failed (non-fatal)");
+    if (!updateRes.ok) {
+      const updateErr = await updateRes.text();
+      logger.warn({ updateErr, postId }, "Yoast meta secondary update failed (non-fatal)");
     } else {
-      logger.info({ postId }, "Yoast meta PUT succeeded");
+      const updatedPost = await updateRes.json() as any;
+      logger.info({
+        postId,
+        metaReceived: updatedPost?.meta,
+        yoastMetaDesc: updatedPost?.meta?.yoast_wpseo_metadesc || updatedPost?.meta?._yoast_wpseo_metadesc,
+      }, "Yoast meta secondary update response");
     }
   } catch (err) {
-    logger.warn({ err }, "Yoast meta PUT exception (non-fatal)");
+    logger.warn({ err }, "Yoast meta secondary update exception (non-fatal)");
   }
 
   return postLink;
