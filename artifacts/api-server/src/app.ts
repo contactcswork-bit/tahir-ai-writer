@@ -1,4 +1,4 @@
-import express, { type Express } from "express";
+import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
@@ -75,5 +75,39 @@ app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true, limit: "2mb" }));
 
 app.use("/api", router);
+
+// 404 handler for unknown API routes (Express 5 wildcard syntax)
+app.use("/api/{*path}", (_req: Request, res: Response) => {
+  res.status(404).json({ error: "API endpoint not found" });
+});
+
+// Global error handler — catches any unhandled error thrown/passed via next(err)
+// Must have 4 parameters for Express to treat it as error middleware
+app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
+  const status = err.status || err.statusCode || 500;
+
+  // Build a human-readable message
+  let message = err.message || "Internal server error";
+
+  // Drizzle / PostgreSQL errors
+  if (err.code === "23505") message = "A record with this value already exists";
+  if (err.code === "23503") message = "Cannot delete — other records depend on this item";
+  if (err.code === "23502") message = "A required field is missing";
+  if (err.code === "42P01") message = "Database table not found — please contact support";
+  if (err.name === "ZodError") {
+    const issues = err.errors?.map((e: any) => `${e.path.join(".")}: ${e.message}`).join("; ");
+    message = `Validation error — ${issues || err.message}`;
+  }
+
+  logger.error(
+    { err, status, method: req.method, url: req.url?.split("?")[0] },
+    "Unhandled route error"
+  );
+
+  res.status(status).json({
+    error: message,
+    ...(process.env.NODE_ENV !== "production" && { stack: err.stack }),
+  });
+});
 
 export default app;
