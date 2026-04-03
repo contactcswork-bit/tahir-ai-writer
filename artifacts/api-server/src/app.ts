@@ -8,6 +8,9 @@ import { logger } from "./lib/logger";
 
 const app: Express = express();
 
+// Trust the deployment proxy (required for rate limiting and X-Forwarded-For in production)
+app.set("trust proxy", 1);
+
 // Security headers
 app.use(
   helmet({
