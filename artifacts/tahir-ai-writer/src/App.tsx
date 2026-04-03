@@ -17,6 +17,7 @@ import FailedArticles from "@/pages/failed-articles";
 import Users from "@/pages/users";
 import Settings from "@/pages/settings";
 import WpAuthCallback from "@/pages/wp-auth-callback";
+import FetchLinks from "@/pages/fetch-links";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -68,6 +69,9 @@ function Router() {
       </Route>
       <Route path="/article-urls">
         {() => <ProtectedRoute component={ArticleUrls} />}
+      </Route>
+      <Route path="/fetch-links">
+        {() => <ProtectedRoute component={FetchLinks} />}
       </Route>
       <Route path="/failed-articles">
         {() => <ProtectedRoute component={FailedArticles} />}
