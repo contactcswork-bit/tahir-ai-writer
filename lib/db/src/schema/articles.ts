@@ -20,6 +20,9 @@ export const articlesTable = pgTable("articles", {
   model: text("model"),
   imageSource: text("image_source").default("pollinations"),
   publishNow: integer("publish_now").default(0),
+  tokensPrompt: integer("tokens_prompt"),
+  tokensCompletion: integer("tokens_completion"),
+  tokensTotal: integer("tokens_total"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });
