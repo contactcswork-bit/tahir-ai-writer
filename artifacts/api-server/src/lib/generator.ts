@@ -6,6 +6,33 @@ const queue: number[] = [];
 let processing = 0;
 const MAX_CONCURRENT = 5;
 
+// Global semaphore: Pollinations free tier allows only 1 concurrent request per IP.
+// This prevents multiple articles from hammering the endpoint at the same time.
+let imageFetchBusy = false;
+const imageFetchWaiters: Array<() => void> = [];
+
+async function acquireImageSemaphore(): Promise<void> {
+  if (!imageFetchBusy) {
+    imageFetchBusy = true;
+    return;
+  }
+  return new Promise<void>((resolve) => {
+    imageFetchWaiters.push(() => {
+      imageFetchBusy = true;
+      resolve();
+    });
+  });
+}
+
+function releaseImageSemaphore(): void {
+  const next = imageFetchWaiters.shift();
+  if (next) {
+    next();
+  } else {
+    imageFetchBusy = false;
+  }
+}
+
 export function addToQueue(articleId: number): void {
   queue.push(articleId);
   processQueue();
@@ -72,39 +99,51 @@ async function getPollinationsImageUrl(keyword: string, settings: any): Promise<
 }
 
 async function fetchImageWithRetry(imageUrl: string, maxRetries = 4): Promise<Response | null> {
-  const delays = [0, 3000, 6000, 12000];
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    if (attempt > 0) {
-      await new Promise((r) => setTimeout(r, delays[attempt] ?? 12000));
-    }
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 90000);
-    try {
-      const res = await fetch(imageUrl, {
-        redirect: "follow",
-        signal: controller.signal,
-        headers: {
-          "User-Agent": "Mozilla/5.0 (compatible; TahirAIWriter/1.0; +https://replit.com)",
-          "Accept": "image/*,*/*;q=0.8",
-        },
-      });
-      clearTimeout(timeout);
-      if (res.status === 429) {
-        logger.warn({ attempt, imageUrl }, "Pollinations rate limited (429), retrying...");
-        continue;
+  // Retry delays: first attempt immediately, then 20s, 35s, 50s between tries
+  const retryDelays = [0, 20000, 35000, 50000];
+
+  await acquireImageSemaphore();
+  try {
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      if (attempt > 0) {
+        await new Promise((r) => setTimeout(r, retryDelays[attempt] ?? 50000));
       }
-      if (!res.ok) {
-        logger.warn({ status: res.status, attempt }, "Image fetch non-ok response");
-        return null;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 120000);
+      try {
+        const res = await fetch(imageUrl, {
+          redirect: "follow",
+          signal: controller.signal,
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36",
+            "Accept": "image/*,*/*;q=0.8",
+            "Referer": "https://pollinations.ai/",
+          },
+        });
+        clearTimeout(timeout);
+        if (res.status === 429) {
+          logger.warn({ attempt, imageUrl }, `Pollinations rate limited (429), waiting before retry ${attempt + 1}/${maxRetries}`);
+          continue;
+        }
+        if (res.status === 402 || res.status === 401) {
+          logger.warn({ status: res.status }, "Pollinations auth/payment issue — skipping image");
+          return null;
+        }
+        if (!res.ok) {
+          logger.warn({ status: res.status, attempt }, "Image fetch non-ok response");
+          return null;
+        }
+        return res;
+      } catch (err) {
+        clearTimeout(timeout);
+        logger.warn({ err, attempt }, "Image fetch error, retrying...");
       }
-      return res;
-    } catch (err) {
-      clearTimeout(timeout);
-      logger.warn({ err, attempt }, "Image fetch error, retrying...");
     }
+    logger.warn({ imageUrl }, "Image fetch failed after all retries");
+    return null;
+  } finally {
+    releaseImageSemaphore();
   }
-  logger.warn({ imageUrl }, "Image fetch failed after all retries");
-  return null;
 }
 
 async function uploadImageToWordPress(
@@ -326,6 +365,11 @@ async function publishToWordPress(
     excerpt: aiResult.metaDescription,
     slug,
     status: wpStatus,
+    // Yoast SEO and Rank Math meta included in initial POST
+    meta: {
+      yoast_wpseo_metadesc: aiResult.metaDescription,
+      rank_math_description: aiResult.metaDescription,
+    },
   };
 
   if (tagIds.length > 0) payload.tags = tagIds;
@@ -350,31 +394,33 @@ async function publishToWordPress(
   const postId: number = post.id;
   const postLink: string = post.link || `${siteUrl}/?p=${postId}`;
 
-  // Update Yoast SEO meta description as a separate PATCH (required for Yoast to pick it up)
+  // Secondary update: PUT with Yoast meta to ensure it's picked up by Yoast SEO
   try {
-    const metaPayload: any = {
+    const patchPayload: any = {
       meta: {
         yoast_wpseo_metadesc: aiResult.metaDescription,
         rank_math_description: aiResult.metaDescription,
       },
     };
-    if (featuredMediaId) metaPayload.featured_media = featuredMediaId;
+    // Re-affirm featured_media in the update (some WP setups need it set twice)
+    if (featuredMediaId) patchPayload.featured_media = featuredMediaId;
 
     const patchRes = await fetch(`${siteUrl}/wp-json/wp/v2/posts/${postId}`, {
-      method: "POST",
+      method: "PUT",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Basic ${credentials}`,
-        "X-HTTP-Method-Override": "PATCH",
       },
-      body: JSON.stringify(metaPayload),
+      body: JSON.stringify(patchPayload),
     });
     if (!patchRes.ok) {
       const patchErr = await patchRes.text();
-      logger.warn({ patchErr }, "Yoast meta PATCH failed (non-fatal)");
+      logger.warn({ patchErr, postId }, "Yoast meta PUT failed (non-fatal)");
+    } else {
+      logger.info({ postId }, "Yoast meta PUT succeeded");
     }
   } catch (err) {
-    logger.warn({ err }, "Yoast meta PATCH exception (non-fatal)");
+    logger.warn({ err }, "Yoast meta PUT exception (non-fatal)");
   }
 
   return postLink;
