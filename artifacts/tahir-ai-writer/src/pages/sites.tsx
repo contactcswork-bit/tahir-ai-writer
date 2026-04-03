@@ -18,6 +18,7 @@ import {
 } from "@workspace/api-client-react";
 import { Search, Plus, FolderPlus, RefreshCw, Pin, Trash2, Loader2, CheckCircle2, XCircle, Link2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { toastError } from "@/lib/errors";
 
 export default function Sites() {
   const [search, setSearch] = useState("");
@@ -63,8 +64,8 @@ export default function Sites() {
     try {
       await togglePin.mutateAsync({ id });
       refetchSites();
-    } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } catch (e: unknown) {
+      toast(toastError(e));
     }
   };
 
@@ -74,8 +75,8 @@ export default function Sites() {
       await deleteSite.mutateAsync({ id });
       refetchSites();
       toast({ title: "Site deleted" });
-    } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } catch (e: unknown) {
+      toast(toastError(e));
     }
   };
 
@@ -88,8 +89,8 @@ export default function Sites() {
         variant: res.success ? "default" : "destructive"
       });
       refetchSites();
-    } catch (e: any) {
-      toast({ title: "Test Error", description: e.message, variant: "destructive" });
+    } catch (e: unknown) {
+      toast(toastError(e));
     }
   };
 
@@ -137,8 +138,8 @@ export default function Sites() {
       setNewSite({ name: "", url: "", username: "", applicationPassword: "", folderId: "" });
       setAddSiteOpen(false);
       refetchSites();
-    } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } catch (e: unknown) {
+      toast(toastError(e));
     }
   };
 
@@ -158,8 +159,8 @@ export default function Sites() {
       setBulkText("");
       setBulkAddOpen(false);
       refetchSites();
-    } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } catch (e: unknown) {
+      toast(toastError(e));
     }
   };
 
@@ -174,8 +175,8 @@ export default function Sites() {
       setFolderName("");
       setNewFolderOpen(false);
       refetchFolders();
-    } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } catch (e: unknown) {
+      toast(toastError(e));
     }
   };
 
