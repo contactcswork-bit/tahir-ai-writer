@@ -8,6 +8,7 @@ import articlesRouter from "./articles";
 import generateRouter from "./generate";
 import dashboardRouter from "./dashboard";
 import settingsRouter from "./settings";
+import fetchLinksRouter from "./fetch-links";
 
 const router: IRouter = Router();
 
@@ -20,5 +21,6 @@ router.use(articlesRouter);
 router.use(generateRouter);
 router.use(dashboardRouter);
 router.use(settingsRouter);
+router.use(fetchLinksRouter);
 
 export default router;
