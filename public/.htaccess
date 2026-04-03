@@ -7,7 +7,10 @@
   RewriteRule . /index.html [L]
 </IfModule>
 
-# Cache static assets
+# Fallback: if mod_rewrite is unavailable, use 404.html as SPA entry
+ErrorDocument 404 /404.html
+
+# Cache static assets aggressively
 <IfModule mod_expires.c>
   ExpiresActive On
   ExpiresByType text/css "access plus 1 year"
