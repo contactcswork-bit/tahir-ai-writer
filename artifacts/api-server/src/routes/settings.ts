@@ -35,36 +35,40 @@ function serializeSettings(settings: any) {
   };
 }
 
-router.get("/settings", requireAdmin, async (_req, res): Promise<void> => {
-  const settings = await getOrCreateSettings();
-  res.json(serializeSettings(settings));
+router.get("/settings", requireAdmin, async (_req, res, next): Promise<void> => {
+  try {
+    const settings = await getOrCreateSettings();
+    res.json(serializeSettings(settings));
+  } catch (err) { next(err); }
 });
 
-router.patch("/settings", requireAdmin, async (req, res): Promise<void> => {
-  const body = req.body;
+router.patch("/settings", requireAdmin, async (req, res, next): Promise<void> => {
+  try {
+    const body = req.body;
 
-  const existing = await getOrCreateSettings();
-  const updateData: any = {};
-  if (body.longcatApiKey != null) updateData.longcatApiKey = body.longcatApiKey;
-  if (body.longcatModel != null) updateData.longcatModel = body.longcatModel;
-  if (body.pollinationsEnabled != null) updateData.pollinationsEnabled = body.pollinationsEnabled;
-  if (body.pollinationsApiKey != null) updateData.pollinationsApiKey = body.pollinationsApiKey;
-  if (body.defaultLanguage != null) updateData.defaultLanguage = body.defaultLanguage;
-  if (body.defaultWordCount != null) updateData.defaultWordCount = body.defaultWordCount;
-  if (body.concurrentGenerations != null) updateData.concurrentGenerations = body.concurrentGenerations;
-  if (body.customApis != null) updateData.customApis = body.customApis;
+    const existing = await getOrCreateSettings();
+    const updateData: any = {};
+    if (body.longcatApiKey != null) updateData.longcatApiKey = body.longcatApiKey;
+    if (body.longcatModel != null) updateData.longcatModel = body.longcatModel;
+    if (body.pollinationsEnabled != null) updateData.pollinationsEnabled = body.pollinationsEnabled;
+    if (body.pollinationsApiKey != null) updateData.pollinationsApiKey = body.pollinationsApiKey;
+    if (body.defaultLanguage != null) updateData.defaultLanguage = body.defaultLanguage;
+    if (body.defaultWordCount != null) updateData.defaultWordCount = body.defaultWordCount;
+    if (body.concurrentGenerations != null) updateData.concurrentGenerations = body.concurrentGenerations;
+    if (body.customApis != null) updateData.customApis = body.customApis;
 
-  if (Object.keys(updateData).length === 0) {
-    res.json(serializeSettings(existing));
-    return;
-  }
+    if (Object.keys(updateData).length === 0) {
+      res.json(serializeSettings(existing));
+      return;
+    }
 
-  await db.update(appSettingsTable)
-    .set({ ...updateData, updatedAt: new Date() })
-    .where(eq(appSettingsTable.id, existing.id));
+    await db.update(appSettingsTable)
+      .set({ ...updateData, updatedAt: new Date() })
+      .where(eq(appSettingsTable.id, existing.id));
 
-  const [settings] = await db.select().from(appSettingsTable).limit(1);
-  res.json(serializeSettings(settings));
+    const [settings] = await db.select().from(appSettingsTable).limit(1);
+    res.json(serializeSettings(settings));
+  } catch (err) { next(err); }
 });
 
 export default router;
