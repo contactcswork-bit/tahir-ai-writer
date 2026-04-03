@@ -319,7 +319,7 @@ Respond with ONLY a JSON object — no text before or after, no markdown fences:
 {"title":"...","metaDescription":"...","category":"...","tags":["...","...","...","...","..."],"content":"..."}
 
 RULES:
-- title: max 65 chars, engaging, no clichés, no years (2024/2025)
+- title: 10 to 13 words, SEO-optimized with power words (e.g., "Best", "Proven", "Ultimate", "Complete", "Essential", "Expert", "Top", "Step-by-Step", "Effective", "Powerful", "Simple", "Guaranteed"); include the main keyword naturally; no years (2024/2025); no clichés like "dive into" or "unleash"
 - metaDescription: under 155 chars, includes keyword, compelling
 - category: a SPECIFIC, topic-based category derived directly from the keyword (e.g., "Kitchen Appliances", "Digital Marketing", "Weight Loss", "Python Programming", "Personal Finance"). NEVER use generic names like "Blog", "General", "Uncategorized", "News", "Articles", or "Posts"
 - tags: exactly 5, mix of broad and specific, short phrases
