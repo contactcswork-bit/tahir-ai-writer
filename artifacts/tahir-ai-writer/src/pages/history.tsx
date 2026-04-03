@@ -14,11 +14,9 @@ export default function History() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<ListArticlesStatus | "all">("all");
   
-  const { data, refetch } = useListArticles({ 
-    query: { 
-      queryKey: ["articles", { search, status: statusFilter === "all" ? undefined : statusFilter, page: 1, limit: 50 }] 
-    } 
-  });
+  const { data, refetch } = useListArticles(
+    { status: statusFilter === "all" ? undefined : statusFilter, search: search || undefined, page: 1, limit: 50 }
+  );
   
   const deleteMutation = useDeleteArticle();
   const retryMutation = useRetryArticle();
