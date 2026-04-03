@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db, articlesTable, sitesTable } from "@workspace/db";
-import { eq, and, desc, gte, sql, count } from "drizzle-orm";
+import { eq, and, desc, gte, ilike, or, isNotNull, count } from "drizzle-orm";
 import { requireAuth } from "../lib/auth";
 import {
   ListArticlesQueryParams,
@@ -27,6 +27,15 @@ router.get("/articles", requireAuth, async (req, res): Promise<void> => {
 
   if (status && status !== "all") {
     conditions.push(eq(articlesTable.status, status));
+  }
+
+  if (search) {
+    conditions.push(
+      or(
+        ilike(articlesTable.keyword, `%${search}%`),
+        ilike(articlesTable.title, `%${search}%`)
+      )
+    );
   }
 
   if (siteId) {
@@ -67,10 +76,11 @@ router.get("/articles/today-urls", requireAuth, async (req, res): Promise<void> 
       and(
         eq(articlesTable.userId, user.id),
         eq(articlesTable.status, "published"),
-        gte(articlesTable.publishedAt, today)
+        isNotNull(articlesTable.publishedUrl),
+        gte(articlesTable.createdAt, today)
       )
     )
-    .orderBy(desc(articlesTable.publishedAt));
+    .orderBy(desc(articlesTable.createdAt));
 
   const grouped: Record<string, any> = {};
   for (const { articles: a, sites: s } of articles) {
