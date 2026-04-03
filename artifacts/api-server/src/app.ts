@@ -45,10 +45,10 @@ app.use(
   })
 );
 
-// Global rate limit: 200 requests per minute per IP
+// Global rate limit: high ceiling to prevent abuse without blocking real usage
 const globalLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 200,
+  max: 2000,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many requests — please slow down." },
@@ -66,15 +66,6 @@ const authLimiter = rateLimit({
 app.use("/api/auth/login", authLimiter);
 app.use("/api/auth/register", authLimiter);
 
-// Stricter rate limit for article generation: 30 per 5 minutes
-const generateLimiter = rateLimit({
-  windowMs: 5 * 60 * 1000,
-  max: 30,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: "Too many generation requests — please wait a moment." },
-});
-app.use("/api/generate", generateLimiter);
 
 app.use(
   pinoHttp({
