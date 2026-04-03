@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { db, articlesTable, sitesTable } from "@workspace/db";
-import { eq, and, gte, count, sql } from "drizzle-orm";
+import { usersTable } from "@workspace/db";
+import { eq, and, gte, count, sql, sum, avg, isNotNull } from "drizzle-orm";
 import { requireAuth } from "../lib/auth";
 
 const router: IRouter = Router();
@@ -79,6 +80,107 @@ router.get("/dashboard/sites-overview", requireAuth, async (req, res): Promise<v
   const totalConnected = sites.filter((s) => s.status === "connected").length;
 
   res.json({ totalActive, totalConnected, sites: sitesWithStats });
+});
+
+// Admin-only: daily usage stats with per-article token breakdown
+router.get("/dashboard/usage", requireAuth, async (req, res): Promise<void> => {
+  const user = (req as any).user;
+  if (user.role !== "admin") {
+    res.status(403).json({ error: "Admin only" });
+    return;
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
+  sevenDaysAgo.setHours(0, 0, 0, 0);
+
+  // Today's per-article breakdown (all users, admin sees everyone)
+  const todayArticles = await db
+    .select({
+      id: articlesTable.id,
+      keyword: articlesTable.keyword,
+      status: articlesTable.status,
+      wordCount: articlesTable.wordCount,
+      tokensPrompt: articlesTable.tokensPrompt,
+      tokensCompletion: articlesTable.tokensCompletion,
+      tokensTotal: articlesTable.tokensTotal,
+      createdAt: articlesTable.createdAt,
+      userId: articlesTable.userId,
+    })
+    .from(articlesTable)
+    .where(gte(articlesTable.createdAt, today))
+    .orderBy(sql`${articlesTable.createdAt} desc`);
+
+  // Today's summary totals (only articles with token data)
+  const todaySummary = await db
+    .select({
+      totalArticles: count(),
+      totalTokens: sum(articlesTable.tokensTotal),
+      avgTokens: avg(articlesTable.tokensTotal),
+      totalPromptTokens: sum(articlesTable.tokensPrompt),
+      totalCompletionTokens: sum(articlesTable.tokensCompletion),
+    })
+    .from(articlesTable)
+    .where(and(gte(articlesTable.createdAt, today), isNotNull(articlesTable.tokensTotal)));
+
+  // Last 7 days daily totals
+  const dailyTotals = await db
+    .select({
+      date: sql<string>`DATE(${articlesTable.createdAt} AT TIME ZONE 'UTC')`,
+      articles: count(),
+      tokens: sum(articlesTable.tokensTotal),
+    })
+    .from(articlesTable)
+    .where(and(gte(articlesTable.createdAt, sevenDaysAgo), isNotNull(articlesTable.tokensTotal)))
+    .groupBy(sql`DATE(${articlesTable.createdAt} AT TIME ZONE 'UTC')`)
+    .orderBy(sql`DATE(${articlesTable.createdAt} AT TIME ZONE 'UTC') asc`);
+
+  // Per-user breakdown for today
+  const userBreakdown = await db
+    .select({
+      userId: articlesTable.userId,
+      articles: count(),
+      tokens: sum(articlesTable.tokensTotal),
+    })
+    .from(articlesTable)
+    .where(and(gte(articlesTable.createdAt, today), isNotNull(articlesTable.tokensTotal)))
+    .groupBy(articlesTable.userId);
+
+  const summary = todaySummary[0] || {};
+
+  res.json({
+    summary: {
+      totalArticles: Number(summary.totalArticles || 0),
+      totalTokens: Number(summary.totalTokens || 0),
+      avgTokensPerArticle: Math.round(Number(summary.avgTokens || 0)),
+      totalPromptTokens: Number(summary.totalPromptTokens || 0),
+      totalCompletionTokens: Number(summary.totalCompletionTokens || 0),
+    },
+    todayArticles: todayArticles.map(a => ({
+      id: a.id,
+      keyword: a.keyword,
+      status: a.status,
+      wordCount: a.wordCount || 0,
+      tokensPrompt: a.tokensPrompt || 0,
+      tokensCompletion: a.tokensCompletion || 0,
+      tokensTotal: a.tokensTotal || 0,
+      createdAt: a.createdAt,
+      userId: a.userId,
+    })),
+    dailyTotals: dailyTotals.map(d => ({
+      date: d.date,
+      articles: Number(d.articles || 0),
+      tokens: Number(d.tokens || 0),
+    })),
+    userBreakdown: userBreakdown.map(u => ({
+      userId: u.userId,
+      articles: Number(u.articles || 0),
+      tokens: Number(u.tokens || 0),
+    })),
+  });
 });
 
 export default router;
