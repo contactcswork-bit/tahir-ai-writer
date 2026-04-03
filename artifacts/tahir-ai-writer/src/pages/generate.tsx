@@ -23,7 +23,7 @@ interface QueueItem {
 export default function Generate() {
   const [keywords, setKeywords] = useState("");
   const [language, setLanguage] = useState("English");
-  const [wordCount, setWordCount] = useState("800");
+  const [wordCount, setWordCount] = useState("1500");
   const [imageSource, setImageSource] = useState<"pollinations" | "url" | "none">("pollinations");
   const [imageUrl, setImageUrl] = useState("");
   const [scheduledAt, setScheduledAt] = useState("");
@@ -162,10 +162,12 @@ export default function Generate() {
                 <Select value={wordCount} onValueChange={setWordCount}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="500">500 Words</SelectItem>
                     <SelectItem value="800">800 Words</SelectItem>
                     <SelectItem value="1200">1200 Words</SelectItem>
+                    <SelectItem value="1500">1500 Words</SelectItem>
                     <SelectItem value="2000">2000 Words</SelectItem>
+                    <SelectItem value="2500">2500 Words</SelectItem>
+                    <SelectItem value="3000">3000 Words</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
