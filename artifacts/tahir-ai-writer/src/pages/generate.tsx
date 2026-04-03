@@ -10,7 +10,10 @@ import { Switch } from "@/components/ui/switch";
 import { useListSites, useGenerateArticles, useGetGenerateStatus } from "@workspace/api-client-react";
 import { useToast } from "@/hooks/use-toast";
 import { toastError } from "@/lib/errors";
-import { Wand2, Loader2, Pin, Globe, Clock, CheckCircle2, AlertCircle } from "lucide-react";
+import {
+  PenLine, Zap, List, Sparkles, Calendar, FileText,
+  Loader2, Pin, Globe, Clock, Send
+} from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
 interface QueueItem {
@@ -27,6 +30,7 @@ export default function Generate() {
   const [wordCount, setWordCount] = useState("1500");
   const [imageSource, setImageSource] = useState<"pollinations" | "url" | "none">("pollinations");
   const [imageUrl, setImageUrl] = useState("");
+  const [scheduleEnabled, setScheduleEnabled] = useState(false);
   const [scheduledAt, setScheduledAt] = useState("");
   const [selectedSites, setSelectedSites] = useState<number[]>([]);
   const [publishNow, setPublishNow] = useState(false);
@@ -37,8 +41,6 @@ export default function Generate() {
   const { data: status, refetch: refetchStatus } = useGetGenerateStatus();
   const { toast } = useToast();
 
-  const isActive = (status && (status.queueLength > 0 || status.processing > 0)) || queueItems.length > 0;
-
   const fetchQueue = useCallback(async () => {
     try {
       const res = await apiFetch("/generate/queue");
@@ -47,7 +49,7 @@ export default function Generate() {
         setQueueItems(data.items || []);
       }
     } catch {
-      // Non-critical: queue display is best-effort, silently skip on transient errors
+      // Non-critical
     }
   }, []);
 
@@ -81,6 +83,11 @@ export default function Generate() {
     );
   };
 
+  const handleScheduleToggle = (val: boolean) => {
+    setScheduleEnabled(val);
+    if (!val) setScheduledAt("");
+  };
+
   const handleGenerate = async () => {
     if (keywordList.length === 0) {
       toast({ title: "Validation Error", description: "Please enter at least one keyword", variant: "destructive" });
@@ -100,7 +107,7 @@ export default function Generate() {
           wordCount: parseInt(wordCount),
           imageSource,
           imageUrl: imageSource === "url" ? imageUrl : undefined,
-          scheduledAt: scheduledAt || undefined,
+          scheduledAt: scheduleEnabled && scheduledAt ? scheduledAt : undefined,
           publishNow,
         }
       });
@@ -120,251 +127,334 @@ export default function Generate() {
 
   const pendingCount = queueItems.filter(i => i.status === "queued").length;
   const processingCount = queueItems.filter(i => i.status === "generating").length;
+  const imageEnabled = imageSource !== "none";
 
   return (
     <Layout>
-      <div className="flex flex-col lg:flex-row gap-6">
+      {/* Page header */}
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold flex items-center gap-2.5">
+          <PenLine className="w-6 h-6 text-primary" />
+          Generate Content
+        </h1>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+          Enter a keyword and select sites to generate unique articles
+        </p>
+      </div>
 
-        {/* Left Panel: Settings */}
-        <div className="w-full lg:w-1/3 space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Article Settings</CardTitle>
+      <div className="flex flex-col lg:flex-row gap-6 items-start">
+
+        {/* ── Left: Article Settings ── */}
+        <div className="flex-1 min-w-0 space-y-4">
+          <Card className="shadow-sm">
+            <CardHeader className="pb-4 border-b border-gray-100 dark:border-zinc-800">
+              <CardTitle className="text-lg">Article Settings</CardTitle>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5 font-normal">
+                Configure your content generation
+              </p>
             </CardHeader>
-            <CardContent className="space-y-4">
+
+            <CardContent className="pt-5 space-y-5">
+
+              {/* Keywords textarea */}
               <div className="space-y-2">
-                <Label>Keywords / Topics (one per line)</Label>
+                <Label className="flex items-center gap-2 text-sm font-medium">
+                  <List className="w-4 h-4 text-gray-500" />
+                  Keywords / Topics * <span className="font-normal text-gray-400">(one per line)</span>
+                </Label>
                 <Textarea
-                  rows={8}
+                  rows={5}
                   value={keywords}
                   onChange={(e) => setKeywords(e.target.value)}
-                  placeholder={"best laptops 2025\nhow to lose weight\nai tools for business"}
-                  className="font-mono text-sm"
+                  placeholder={"best laptops 2026\nhealthy breakfast recipes\ndigital marketing tips\nhome workout routine"}
+                  className="font-mono text-sm resize-y bg-white dark:bg-zinc-950"
                 />
-                <p className="text-xs text-gray-500">{keywordList.length} keyword{keywordList.length !== 1 ? "s" : ""} entered</p>
+                <p className="text-xs text-gray-400">
+                  Enter one keyword per line • Each keyword will generate unique articles for all selected sites
+                </p>
               </div>
 
-              <div className="space-y-2">
-                <Label>Language</Label>
-                <Select value={language} onValueChange={setLanguage}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="English">English</SelectItem>
-                    <SelectItem value="German">German</SelectItem>
-                    <SelectItem value="French">French</SelectItem>
-                    <SelectItem value="Italian">Italian</SelectItem>
-                    <SelectItem value="Russian">Russian</SelectItem>
-                    <SelectItem value="Spanish">Spanish</SelectItem>
-                    <SelectItem value="Turkish">Turkish</SelectItem>
-                  </SelectContent>
-                </Select>
+              {/* Language + Word Count */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label className="text-sm">Language</Label>
+                  <Select value={language} onValueChange={setLanguage}>
+                    <SelectTrigger className="bg-white dark:bg-zinc-950">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="English">🇬🇧 English</SelectItem>
+                      <SelectItem value="German">🇩🇪 German</SelectItem>
+                      <SelectItem value="French">🇫🇷 French</SelectItem>
+                      <SelectItem value="Italian">🇮🇹 Italian</SelectItem>
+                      <SelectItem value="Russian">🇷🇺 Russian</SelectItem>
+                      <SelectItem value="Spanish">🇪🇸 Spanish</SelectItem>
+                      <SelectItem value="Turkish">🇹🇷 Turkish</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-sm">Word Count</Label>
+                  <Select value={wordCount} onValueChange={setWordCount}>
+                    <SelectTrigger className="bg-white dark:bg-zinc-950">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="800">800 words</SelectItem>
+                      <SelectItem value="1200">1200 words</SelectItem>
+                      <SelectItem value="1500">1500 words</SelectItem>
+                      <SelectItem value="2000">2000 words</SelectItem>
+                      <SelectItem value="2500">2500 words</SelectItem>
+                      <SelectItem value="3000">3000 words</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
 
-              <div className="space-y-2">
-                <Label>Word Count</Label>
-                <Select value={wordCount} onValueChange={setWordCount}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="800">800 Words</SelectItem>
-                    <SelectItem value="1200">1200 Words</SelectItem>
-                    <SelectItem value="1500">1500 Words</SelectItem>
-                    <SelectItem value="2000">2000 Words</SelectItem>
-                    <SelectItem value="2500">2500 Words</SelectItem>
-                    <SelectItem value="3000">3000 Words</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              {/* ── Toggle rows ── */}
 
-              <div className="space-y-2">
-                <Label>Image Source</Label>
-                <Select value={imageSource} onValueChange={(val: any) => setImageSource(val)}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="pollinations">Pollinations AI</SelectItem>
-                    <SelectItem value="url">Custom URL</SelectItem>
-                    <SelectItem value="none">None</SelectItem>
-                  </SelectContent>
-                </Select>
-                {imageSource === "url" && (
-                  <Input
-                    placeholder="https://example.com/image.jpg"
-                    value={imageUrl}
-                    onChange={(e) => setImageUrl(e.target.value)}
-                    className="mt-2"
+              {/* AI Image Generation */}
+              <div className="rounded-xl border border-gray-200 dark:border-zinc-800 overflow-hidden">
+                <div className="flex items-center justify-between p-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-full bg-purple-100 dark:bg-purple-950/40 flex items-center justify-center shrink-0">
+                      <Sparkles className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium">AI Image Generation</p>
+                      <p className="text-xs text-gray-500 mt-0.5">Using Pollinations Flux model</p>
+                    </div>
+                  </div>
+                  <Switch
+                    checked={imageEnabled}
+                    onCheckedChange={(val) => setImageSource(val ? "pollinations" : "none")}
                   />
+                </div>
+
+                {imageEnabled && (
+                  <div className="px-4 pb-4 pt-0 border-t border-gray-100 dark:border-zinc-800 bg-gray-50/50 dark:bg-zinc-900/30 space-y-3">
+                    <div className="space-y-1.5 pt-3">
+                      <Label className="text-sm">Image Model</Label>
+                      <Select value={imageSource} onValueChange={(val: any) => setImageSource(val)}>
+                        <SelectTrigger className="bg-white dark:bg-zinc-950">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="pollinations">Pollinations Flux (default)</SelectItem>
+                          <SelectItem value="url">Custom URL</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-gray-400">Fast, high-quality general purpose image generation.</p>
+                    </div>
+                    {imageSource === "url" && (
+                      <div className="space-y-1.5">
+                        <Label className="text-sm">Image URL</Label>
+                        <Input
+                          placeholder="https://example.com/image.jpg"
+                          value={imageUrl}
+                          onChange={(e) => setImageUrl(e.target.value)}
+                          className="bg-white dark:bg-zinc-950"
+                        />
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
 
-              <div className="space-y-2">
-                <Label>Schedule (Optional)</Label>
-                <Input
-                  type="datetime-local"
-                  value={scheduledAt}
-                  onChange={(e) => setScheduledAt(e.target.value)}
-                />
+              {/* Instant Publish */}
+              <div className="rounded-xl border border-gray-200 dark:border-zinc-800 p-4 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-full bg-gray-100 dark:bg-zinc-800 flex items-center justify-center shrink-0">
+                    <Send className="w-4 h-4 text-gray-500" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium">Instant Publish</p>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      {publishNow ? "Articles will be published directly" : "Articles will be saved as drafts"}
+                    </p>
+                  </div>
+                </div>
+                <Switch checked={publishNow} onCheckedChange={setPublishNow} />
               </div>
 
-              {/* Publish toggle */}
-              <div className="flex items-center justify-between py-2 border-t border-gray-100 dark:border-zinc-800">
+              {/* Schedule Publishing */}
+              <div className="rounded-xl border border-gray-200 dark:border-zinc-800 overflow-hidden">
+                <div className="flex items-center justify-between p-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-full bg-gray-100 dark:bg-zinc-800 flex items-center justify-center shrink-0">
+                      <Calendar className="w-4 h-4 text-gray-500" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium">Schedule Publishing</p>
+                      <p className="text-xs text-gray-500 mt-0.5">Auto-publish articles at a specific date/time</p>
+                    </div>
+                  </div>
+                  <Switch checked={scheduleEnabled} onCheckedChange={handleScheduleToggle} />
+                </div>
+                {scheduleEnabled && (
+                  <div className="px-4 pb-4 border-t border-gray-100 dark:border-zinc-800 bg-gray-50/50 dark:bg-zinc-900/30 pt-3">
+                    <Input
+                      type="datetime-local"
+                      value={scheduledAt}
+                      onChange={(e) => setScheduledAt(e.target.value)}
+                      className="bg-white dark:bg-zinc-950"
+                    />
+                  </div>
+                )}
+              </div>
+
+            </CardContent>
+          </Card>
+
+          {/* ── Select Sites ── */}
+          <Card className="shadow-sm">
+            <CardHeader className="pb-3 border-b border-gray-100 dark:border-zinc-800">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
-                  <p className="text-sm font-medium">Auto Publish</p>
-                  <p className="text-xs text-gray-500">
-                    {publishNow ? "Articles will be published directly" : "Articles will be saved as drafts"}
+                  <CardTitle className="text-base">Select Sites</CardTitle>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5 font-normal">
+                    {sites.length} connected site{sites.length !== 1 ? "s" : ""} available
                   </p>
                 </div>
-                <Switch
-                  checked={publishNow}
-                  onCheckedChange={setPublishNow}
-                />
+                <div className="flex gap-2 shrink-0">
+                  <Button variant="outline" size="sm" onClick={handlePinAll} className="text-xs h-8">
+                    <Pin className="w-3.5 h-3.5 mr-1.5" />
+                    Select Pinned
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={handleSelectAll} className="text-xs h-8">
+                    {selectedSites.length === sites.length && sites.length > 0 ? "Deselect All" : "Select All"}
+                  </Button>
+                </div>
               </div>
-
+            </CardHeader>
+            <CardContent className="pt-4">
+              <div className="grid gap-2 grid-cols-1 sm:grid-cols-2">
+                {sites.map(site => (
+                  <div
+                    key={site.id}
+                    onClick={() => toggleSite(site.id)}
+                    className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${
+                      selectedSites.includes(site.id)
+                        ? "border-primary bg-primary/5 ring-1 ring-primary/20"
+                        : "border-gray-200 dark:border-zinc-800 hover:border-primary/50"
+                    }`}
+                  >
+                    <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
+                      selectedSites.includes(site.id) ? "bg-primary border-primary text-white" : "border-gray-300 dark:border-zinc-600"
+                    }`}>
+                      {selectedSites.includes(site.id) && (
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="w-3 h-3">
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                      )}
+                    </div>
+                    <div className="truncate flex-1">
+                      <div className="font-medium text-sm truncate">{site.name}</div>
+                      <div className="text-xs text-gray-500 truncate">{site.url}</div>
+                    </div>
+                    {site.isPinned && <Pin className="w-3 h-3 text-primary shrink-0" />}
+                  </div>
+                ))}
+                {sites.length === 0 && (
+                  <div className="col-span-full py-10 text-center text-gray-400 text-sm">
+                    <Globe className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                    No connected sites found. Add a site first.
+                  </div>
+                )}
+              </div>
             </CardContent>
           </Card>
         </div>
 
-        {/* Right Panel: Sites + Queue */}
-        <div className="w-full lg:w-2/3 space-y-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2 border-b border-gray-100 dark:border-zinc-800">
-              <CardTitle className="text-xl">Generate</CardTitle>
+        {/* ── Right: Generate card ── */}
+        <div className="w-full lg:w-64 shrink-0 space-y-4 lg:sticky lg:top-0">
+          <Card className="shadow-sm">
+            <CardHeader className="pb-3 border-b border-gray-100 dark:border-zinc-800">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Zap className="w-4 h-4 text-primary fill-primary" />
+                Generate
+              </CardTitle>
             </CardHeader>
-            <CardContent className="pt-4 space-y-6">
-
-              {/* Stats + Generate button */}
-              <div className="flex flex-col sm:flex-row justify-between gap-4 items-center bg-gray-50 dark:bg-zinc-900 p-4 rounded-lg border border-gray-100 dark:border-zinc-800">
-                <div className="flex items-center gap-6">
-                  <div className="text-center">
-                    <div className="text-2xl font-bold">{keywordList.length}</div>
-                    <div className="text-xs text-gray-500 uppercase tracking-wider">Keywords</div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-2xl font-bold">{selectedSites.length}</div>
-                    <div className="text-xs text-gray-500 uppercase tracking-wider">Sites</div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-primary">{keywordList.length * selectedSites.length}</div>
-                    <div className="text-xs text-gray-500 uppercase tracking-wider">Total Articles</div>
-                  </div>
+            <CardContent className="pt-5 space-y-5">
+              {/* Stats */}
+              <div className="flex justify-around">
+                <div className="text-center">
+                  <div className="text-4xl font-bold text-gray-900 dark:text-gray-100">{keywordList.length}</div>
+                  <div className="text-xs text-gray-500 mt-1">Keywords</div>
                 </div>
-
-                <Button
-                  size="lg"
-                  onClick={handleGenerate}
-                  disabled={generateMutation.isPending}
-                  className="w-full sm:w-auto font-semibold"
-                  variant={publishNow ? "default" : "outline"}
-                >
-                  {generateMutation.isPending
-                    ? <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                    : <Wand2 className="w-5 h-5 mr-2" />
-                  }
-                  {publishNow ? "Generate & Publish" : "Generate Drafts"}
-                </Button>
+                <div className="w-px bg-gray-200 dark:bg-zinc-700" />
+                <div className="text-center">
+                  <div className="text-4xl font-bold text-gray-900 dark:text-gray-100">{selectedSites.length}</div>
+                  <div className="text-xs text-gray-500 mt-1">Sites</div>
+                </div>
               </div>
 
-              {/* Active Queue Panel */}
-              {queueItems.length > 0 && (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <h3 className="font-semibold text-sm">Generation Queue</h3>
-                    <div className="flex items-center gap-3 text-xs text-gray-500">
-                      {processingCount > 0 && (
-                        <span className="flex items-center gap-1 text-blue-600 dark:text-blue-400 font-medium">
-                          <Loader2 className="w-3 h-3 animate-spin" />
-                          {processingCount} processing
-                        </span>
-                      )}
-                      {pendingCount > 0 && (
-                        <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400 font-medium">
-                          <Clock className="w-3 h-3" />
-                          {pendingCount} pending
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="border rounded-lg overflow-hidden divide-y divide-gray-100 dark:divide-zinc-800 max-h-72 overflow-y-auto">
-                    {queueItems.map(item => (
-                      <div key={item.id} className="flex items-center gap-3 px-3 py-2.5 bg-white dark:bg-zinc-950">
-                        <div className="shrink-0">
-                          {item.status === "generating" ? (
-                            <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
-                          ) : (
-                            <Clock className="w-4 h-4 text-amber-500" />
-                          )}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium truncate">{item.keyword}</p>
-                          {item.siteName && (
-                            <p className="text-xs text-gray-500 truncate flex items-center gap-1">
-                              <Globe className="w-3 h-3" />
-                              {item.siteName}
-                            </p>
-                          )}
-                        </div>
-                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${
-                          item.status === "generating"
-                            ? "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300"
-                            : "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
-                        }`}>
-                          {item.status === "generating" ? "Generating" : "Queued"}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+              {/* Generate button */}
+              <Button
+                size="lg"
+                className="w-full font-semibold"
+                onClick={handleGenerate}
+                disabled={generateMutation.isPending}
+              >
+                {generateMutation.isPending ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <FileText className="w-4 h-4 mr-2" />
+                )}
+                {publishNow ? "Generate & Publish" : "Generate Drafts"}
+              </Button>
+
+              {keywordList.length > 0 && selectedSites.length > 0 && (
+                <p className="text-xs text-center text-gray-400">
+                  {keywordList.length * selectedSites.length} total article{keywordList.length * selectedSites.length !== 1 ? "s" : ""} will be queued
+                </p>
               )}
-
-              {/* Site selection */}
-              <div>
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="font-semibold text-sm">Select Target Sites</h3>
-                  <div className="flex gap-2">
-                    <Button variant="outline" size="sm" onClick={handlePinAll}>
-                      <Pin className="w-4 h-4 mr-2" /> Pinned
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={handleSelectAll}>
-                      {selectedSites.length === sites.length && sites.length > 0 ? "Deselect All" : "Select All"}
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="grid gap-2 grid-cols-1 sm:grid-cols-2">
-                  {sites.map(site => (
-                    <div
-                      key={site.id}
-                      onClick={() => toggleSite(site.id)}
-                      className={`flex items-center gap-3 p-3 rounded-md border cursor-pointer transition-all ${
-                        selectedSites.includes(site.id)
-                          ? 'border-primary bg-primary/5 ring-1 ring-primary/20'
-                          : 'border-gray-200 dark:border-zinc-800 hover:border-primary/50'
-                      }`}
-                    >
-                      <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
-                        selectedSites.includes(site.id) ? 'bg-primary border-primary text-white' : 'border-gray-300'
-                      }`}>
-                        {selectedSites.includes(site.id) && (
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="w-3 h-3">
-                            <polyline points="20 6 9 17 4 12"></polyline>
-                          </svg>
-                        )}
-                      </div>
-                      <div className="truncate flex-1">
-                        <div className="font-medium text-sm truncate">{site.name}</div>
-                        <div className="text-xs text-gray-500 truncate">{site.url}</div>
-                      </div>
-                      {site.isPinned && <Pin className="w-3 h-3 text-primary shrink-0" />}
-                    </div>
-                  ))}
-                  {sites.length === 0 && (
-                    <div className="col-span-full py-8 text-center text-gray-500 text-sm">
-                      No connected sites found. Add a site first.
-                    </div>
-                  )}
-                </div>
-              </div>
-
             </CardContent>
           </Card>
+
+          {/* Queue panel */}
+          {queueItems.length > 0 && (
+            <Card className="shadow-sm">
+              <CardHeader className="pb-2 border-b border-gray-100 dark:border-zinc-800">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm">Queue</CardTitle>
+                  <div className="flex items-center gap-2 text-xs text-gray-500">
+                    {processingCount > 0 && (
+                      <span className="flex items-center gap-1 text-blue-600 dark:text-blue-400 font-medium">
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        {processingCount}
+                      </span>
+                    )}
+                    {pendingCount > 0 && (
+                      <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400 font-medium">
+                        <Clock className="w-3 h-3" />
+                        {pendingCount}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="p-0">
+                <div className="divide-y divide-gray-100 dark:divide-zinc-800 max-h-60 overflow-y-auto">
+                  {queueItems.map(item => (
+                    <div key={item.id} className="flex items-center gap-2.5 px-3 py-2.5">
+                      {item.status === "generating" ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-500 shrink-0" />
+                      ) : (
+                        <Clock className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium truncate">{item.keyword}</p>
+                        {item.siteName && (
+                          <p className="text-[10px] text-gray-400 truncate">{item.siteName}</p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
 
       </div>
