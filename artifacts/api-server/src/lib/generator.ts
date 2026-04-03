@@ -234,36 +234,60 @@ async function getOrCreateTag(
   }
 }
 
+// Generic WordPress default category names — skip these and create a specific one instead
+const GENERIC_CATEGORY_NAMES = new Set(["blog", "uncategorized", "general", "news", "articles", "posts"]);
+
 async function getOrCreateCategory(
   credentials: string,
   siteUrl: string,
   categoryName: string
 ): Promise<number | null> {
   try {
-    const searchRes = await fetch(
-      `${siteUrl}/wp-json/wp/v2/categories?search=${encodeURIComponent(categoryName)}&per_page=1`,
-      { headers: { Authorization: `Basic ${credentials}` } }
-    );
-    if (searchRes.ok) {
-      const existing = await searchRes.json() as any[];
-      if (existing.length > 0 && existing[0].name.toLowerCase() === categoryName.toLowerCase()) {
-        return existing[0].id;
+    const cleanName = categoryName.trim();
+    if (!cleanName) return null;
+
+    // Don't look up or return generic/default categories — create a specific one
+    const isGeneric = GENERIC_CATEGORY_NAMES.has(cleanName.toLowerCase());
+
+    if (!isGeneric) {
+      // Search for an existing category with this exact name
+      const searchRes = await fetch(
+        `${siteUrl}/wp-json/wp/v2/categories?search=${encodeURIComponent(cleanName)}&per_page=10`,
+        { headers: { Authorization: `Basic ${credentials}` } }
+      );
+      if (searchRes.ok) {
+        const existing = await searchRes.json() as any[];
+        const match = existing.find(
+          (c: any) => c.name.toLowerCase() === cleanName.toLowerCase()
+        );
+        if (match) {
+          logger.info({ categoryId: match.id, categoryName: match.name }, "Reusing existing WP category");
+          return match.id;
+        }
       }
     }
 
+    // Create the category
     const createRes = await fetch(`${siteUrl}/wp-json/wp/v2/categories`, {
       method: "POST",
       headers: {
         Authorization: `Basic ${credentials}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ name: categoryName }),
+      body: JSON.stringify({ name: cleanName }),
     });
 
-    if (!createRes.ok) return null;
+    if (!createRes.ok) {
+      const errText = await createRes.text();
+      logger.warn({ status: createRes.status, errText, categoryName: cleanName }, "Failed to create WP category");
+      return null;
+    }
+
     const cat = await createRes.json() as any;
+    logger.info({ categoryId: cat.id, categoryName: cat.name }, "Created new WP category");
     return cat.id ?? null;
-  } catch {
+  } catch (err) {
+    logger.warn({ err, categoryName }, "getOrCreateCategory exception");
     return null;
   }
 }
@@ -297,7 +321,7 @@ Respond with ONLY a JSON object — no text before or after, no markdown fences:
 RULES:
 - title: max 65 chars, engaging, no clichés, no years (2024/2025)
 - metaDescription: under 155 chars, includes keyword, compelling
-- category: single broad category (Technology/Health/Finance/Travel/Business/Lifestyle etc)
+- category: a SPECIFIC, topic-based category derived directly from the keyword (e.g., "Kitchen Appliances", "Digital Marketing", "Weight Loss", "Python Programming", "Personal Finance"). NEVER use generic names like "Blog", "General", "Uncategorized", "News", "Articles", or "Posts"
 - tags: exactly 5, mix of broad and specific, short phrases
 - content: ~${wordCount} words of HTML; start with <h2> (no <h1>); 3-4 H2 sections with optional H3s; short paragraphs (2-3 sentences); at least 2 lists <ul><li>; bold key terms <strong>; 1-2 external links to real authoritative sources (Wikipedia, official sites — NO example.com, NO placeholder URLs); use "${keyword}" naturally in intro, one H2, and 3-5 times total; end with conclusion H2
 - current year is 2026
@@ -367,7 +391,18 @@ async function publishToWordPress(
     if (id) tagIds.push(id);
   }
 
-  const categoryId = await getOrCreateCategory(credentials, siteUrl, aiResult.category);
+  // Safety net: if AI returns a generic category name, derive one from the keyword
+  let resolvedCategory = aiResult.category?.trim() || "";
+  if (!resolvedCategory || GENERIC_CATEGORY_NAMES.has(resolvedCategory.toLowerCase())) {
+    // Derive a specific category from the keyword (Title Case, max 3 words)
+    const keywordWords = article.keyword.split(/\s+/).slice(0, 3);
+    resolvedCategory = keywordWords
+      .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+      .join(" ");
+    logger.info({ original: aiResult.category, derived: resolvedCategory }, "AI returned generic category — using keyword-derived category");
+  }
+
+  const categoryId = await getOrCreateCategory(credentials, siteUrl, resolvedCategory);
 
   const payload: any = {
     title: aiResult.title,
