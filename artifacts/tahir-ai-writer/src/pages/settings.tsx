@@ -8,6 +8,7 @@ import { Switch } from "@/components/ui/switch";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { useGetSettings, useUpdateSettings } from "@workspace/api-client-react";
 import { useToast } from "@/hooks/use-toast";
+import { toastError } from "@/lib/errors";
 import { Save, Plus, Trash2 } from "lucide-react";
 
 export default function Settings() {
@@ -36,8 +37,8 @@ export default function Settings() {
       await updateMutation.mutateAsync({ data: formData });
       toast({ title: "Settings saved successfully" });
       refetch();
-    } catch (e: any) {
-      toast({ title: "Error saving settings", description: e.message, variant: "destructive" });
+    } catch (e: unknown) {
+      toast(toastError(e));
     }
   };
 
