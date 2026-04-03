@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { useListSites, useGenerateArticles, useGetGenerateStatus } from "@workspace/api-client-react";
 import { useToast } from "@/hooks/use-toast";
+import { toastError } from "@/lib/errors";
 import { Wand2, Loader2, Pin, Globe, Clock, CheckCircle2, AlertCircle } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
@@ -45,7 +46,9 @@ export default function Generate() {
         const data = await res.json();
         setQueueItems(data.items || []);
       }
-    } catch {}
+    } catch {
+      // Non-critical: queue display is best-effort, silently skip on transient errors
+    }
   }, []);
 
   useEffect(() => {
@@ -110,8 +113,8 @@ export default function Generate() {
       setKeywords("");
       refetchStatus();
       setTimeout(fetchQueue, 1000);
-    } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } catch (e: unknown) {
+      toast(toastError(e));
     }
   };
 
