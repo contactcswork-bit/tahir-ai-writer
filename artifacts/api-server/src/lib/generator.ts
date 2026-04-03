@@ -319,7 +319,7 @@ Respond with ONLY a JSON object — no text before or after, no markdown fences:
 {"title":"...","metaDescription":"...","category":"...","tags":["...","...","...","...","..."],"content":"..."}
 
 RULES:
-- title: 10 to 13 words, SEO-optimized with power words (e.g., "Best", "Proven", "Ultimate", "Complete", "Essential", "Expert", "Top", "Step-by-Step", "Effective", "Powerful", "Simple", "Guaranteed"); include the main keyword naturally; no years (2024/2025); no clichés like "dive into" or "unleash"
+- title: CRITICAL — the title MUST contain the EXACT keyword phrase "${keyword}" verbatim, word-for-word, without shortening, paraphrasing, or reordering. Simply add 2-5 SEO power words (e.g., "Best", "Proven", "Ultimate", "Complete", "Essential", "Expert", "Top", "Effective", "Powerful", "Simple") before or after the exact keyword phrase so the full title is 10-15 words. No years (2024/2025/2026). No clichés like "dive into" or "unleash". Example: if keyword is "blue running shoes for men", a valid title is "Best Blue Running Shoes for Men That Deliver Proven Results"
 - metaDescription: under 155 chars, includes keyword, compelling
 - category: a SPECIFIC, topic-based category derived directly from the keyword (e.g., "Kitchen Appliances", "Digital Marketing", "Weight Loss", "Python Programming", "Personal Finance"). NEVER use generic names like "Blog", "General", "Uncategorized", "News", "Articles", or "Posts"
 - tags: exactly 5, mix of broad and specific, short phrases
@@ -367,6 +367,22 @@ Return ONLY the JSON.`;
   if (!parsed.title) parsed.title = keyword;
   if (!Array.isArray(parsed.tags)) parsed.tags = [keyword];
   if (!parsed.category) parsed.category = "General";
+
+  // Safety net: guarantee the EXACT keyword appears verbatim in the title
+  const originalTitle = parsed.title;
+  if (!parsed.title.toLowerCase().includes(keyword.toLowerCase())) {
+    const powerSuffixes = [
+      "Complete Guide to Know",
+      "Expert Tips and Proven Strategies",
+      "Best Practices and Essential Tips",
+      "Ultimate Guide for Best Results",
+      "Top Strategies That Actually Work",
+    ];
+    const suffix = powerSuffixes[Math.floor(Math.random() * powerSuffixes.length)];
+    const keywordTitleCase = keyword.charAt(0).toUpperCase() + keyword.slice(1);
+    parsed.title = `${keywordTitleCase}: ${suffix}`;
+    logger.info({ original: originalTitle, forced: parsed.title, keyword }, "AI omitted exact keyword from title — forced keyword into title");
+  }
 
   if (parsed.metaDescription.length > 155) {
     parsed.metaDescription = parsed.metaDescription.substring(0, 152) + "...";
