@@ -11,7 +11,8 @@ import {
   Users, 
   Settings, 
   LogOut,
-  Zap
+  Zap,
+  Search
 } from "lucide-react";
 import { Button } from "./ui/button";
 
@@ -21,6 +22,7 @@ const navItems = [
   { href: "/generate", label: "Generate", icon: PenTool },
   { href: "/history", label: "History", icon: History },
   { href: "/article-urls", label: "Article URLs", icon: LinkIcon },
+  { href: "/fetch-links", label: "Fetch Links", icon: Search },
   { href: "/failed-articles", label: "Failed Articles", icon: AlertCircle },
 ];
 
