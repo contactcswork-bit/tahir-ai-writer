@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Badge } from "@/components/ui/badge";
 import { useListUsers, useDeleteUser, useCreateUser, useUpdateUser, useResetUserPassword } from "@workspace/api-client-react";
 import { useToast } from "@/hooks/use-toast";
+import { toastError } from "@/lib/errors";
 import { Plus, Trash2, Edit, Key, Loader2 } from "lucide-react";
 import { format } from "date-fns";
 
@@ -43,8 +44,8 @@ export default function Users() {
       await deleteMutation.mutateAsync({ id });
       refetch();
       toast({ title: "User deleted" });
-    } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } catch (e: unknown) {
+      toast(toastError(e));
     }
   };
 
@@ -59,8 +60,8 @@ export default function Users() {
       setNewUser({ name: "", email: "", password: "", role: "author" });
       setCreateOpen(false);
       refetch();
-    } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } catch (e: unknown) {
+      toast(toastError(e));
     }
   };
 
@@ -77,8 +78,8 @@ export default function Users() {
       toast({ title: "User updated" });
       setEditOpen(false);
       refetch();
-    } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } catch (e: unknown) {
+      toast(toastError(e));
     }
   };
 
@@ -101,8 +102,8 @@ export default function Users() {
       await resetPasswordMutation.mutateAsync({ id: resetUser.id, data: { newPassword } });
       toast({ title: `Password reset for ${resetUser.name}` });
       setResetOpen(false);
-    } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } catch (e: unknown) {
+      toast(toastError(e));
     }
   };
 
