@@ -8,6 +8,7 @@ import { format } from "date-fns";
 import { Search, ExternalLink, RefreshCw, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
+import { toastError } from "@/lib/errors";
 import { ListArticlesStatus } from "@workspace/api-client-react";
 
 export default function History() {
@@ -42,8 +43,8 @@ export default function History() {
       await deleteMutation.mutateAsync({ id });
       refetch();
       toast({ title: "Article deleted" });
-    } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } catch (e: unknown) {
+      toast(toastError(e));
     }
   };
 
@@ -52,8 +53,8 @@ export default function History() {
       await retryMutation.mutateAsync({ id });
       refetch();
       toast({ title: "Article retried" });
-    } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } catch (e: unknown) {
+      toast(toastError(e));
     }
   };
 
