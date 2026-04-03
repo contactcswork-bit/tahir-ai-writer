@@ -75,54 +75,62 @@ function slugify(text: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
+const DEFAULT_POLLINATIONS_KEY = "sk_31GUBfVAdRunoZ0Gc2W3NmaCwMYikNb2";
+
+function buildPollinationsUrl(keyword: string, apiKey: string): string {
+  const prompt = encodeURIComponent(
+    `${keyword} professional blog featured image, high quality, photorealistic, editorial style`
+  );
+  const params = new URLSearchParams({
+    model: "flux",
+    width: "1200",
+    height: "628",
+  });
+  // gen.pollinations.ai uses ?key= query param for auth
+  if (apiKey) params.set("key", apiKey);
+  return `https://gen.pollinations.ai/image/${prompt}?${params.toString()}`;
+}
+
 async function getPollinationsImageUrl(keyword: string, settings: any): Promise<string | null> {
   try {
-    const prompt = encodeURIComponent(
-      `${keyword} professional blog featured image, high quality, photorealistic, editorial style`
-    );
-    const params = new URLSearchParams({
-      width: "1200",
-      height: "628",
-      nologo: "true",
-      enhance: "true",
-      model: "flux",
-    });
-    const apiKey = settings?.pollinationsApiKey || "";
-    if (apiKey) {
-      params.set("token", apiKey);
-      params.set("private", "true");
-    }
-    return `https://image.pollinations.ai/prompt/${prompt}?${params.toString()}`;
+    const apiKey = settings?.pollinationsApiKey || DEFAULT_POLLINATIONS_KEY;
+    return buildPollinationsUrl(keyword, apiKey);
   } catch {
     return null;
   }
 }
 
-async function fetchImageWithRetry(imageUrl: string, maxRetries = 4): Promise<Response | null> {
-  // Retry delays: first attempt immediately, then 20s, 35s, 50s between tries
-  const retryDelays = [0, 20000, 35000, 50000];
-
+async function fetchImageWithRetry(
+  imageUrl: string,
+  apiKey: string = DEFAULT_POLLINATIONS_KEY,
+  maxRetries = 3
+): Promise<Response | null> {
+  // Use semaphore even for authenticated endpoint to be safe
   await acquireImageSemaphore();
   try {
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       if (attempt > 0) {
-        await new Promise((r) => setTimeout(r, retryDelays[attempt] ?? 50000));
+        // Short delays for authenticated endpoint (much less rate limiting)
+        await new Promise((r) => setTimeout(r, attempt * 5000));
       }
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 120000);
       try {
+        const headers: Record<string, string> = {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+          "Accept": "image/*,*/*;q=0.8",
+        };
+        if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
+
         const res = await fetch(imageUrl, {
           redirect: "follow",
           signal: controller.signal,
-          headers: {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36",
-            "Accept": "image/*,*/*;q=0.8",
-            "Referer": "https://pollinations.ai/",
-          },
+          headers,
         });
         clearTimeout(timeout);
+
         if (res.status === 429) {
-          logger.warn({ attempt, imageUrl }, `Pollinations rate limited (429), waiting before retry ${attempt + 1}/${maxRetries}`);
+          logger.warn({ attempt }, "Pollinations rate limited (429), retrying...");
           continue;
         }
         if (res.status === 402 || res.status === 401) {
@@ -130,9 +138,10 @@ async function fetchImageWithRetry(imageUrl: string, maxRetries = 4): Promise<Re
           return null;
         }
         if (!res.ok) {
-          logger.warn({ status: res.status, attempt }, "Image fetch non-ok response");
+          logger.warn({ status: res.status, attempt }, "Image fetch failed");
           return null;
         }
+        logger.info({ attempt, size: res.headers.get("content-length") }, "Pollinations image fetched successfully");
         return res;
       } catch (err) {
         clearTimeout(timeout);
@@ -151,10 +160,11 @@ async function uploadImageToWordPress(
   credentials: string,
   siteUrl: string,
   imageUrl: string,
-  keyword: string
+  keyword: string,
+  apiKey: string = DEFAULT_POLLINATIONS_KEY
 ): Promise<number | null> {
   try {
-    const imgResponse = await fetchImageWithRetry(imageUrl);
+    const imgResponse = await fetchImageWithRetry(imageUrl, apiKey);
     if (!imgResponse) return null;
 
     const imageBuffer = await imgResponse.arrayBuffer();
@@ -487,9 +497,10 @@ async function generateArticle(articleId: number): Promise<void> {
         const siteUrl = site.url.replace(/\/$/, "");
 
         // Step 3: Download image and upload to WordPress media library
+        const pollinationsKey = settings?.pollinationsApiKey || DEFAULT_POLLINATIONS_KEY;
         let featuredMediaId: number | null = null;
         if (featuredImageUrl) {
-          featuredMediaId = await uploadImageToWordPress(site, credentials, siteUrl, featuredImageUrl, article.keyword);
+          featuredMediaId = await uploadImageToWordPress(site, credentials, siteUrl, featuredImageUrl, article.keyword, pollinationsKey);
         }
 
         const wpStatus = publishNow ? "publish" : "draft";
