@@ -1,0 +1,1345 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: Tahir AI Writer API specification
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: auth
+    description: Authentication operations
+  - name: users
+    description: User management
+  - name: sites
+    description: WordPress site management
+  - name: folders
+    description: Folder management for sites
+  - name: articles
+    description: Article management
+  - name: generate
+    description: Article generation
+  - name: settings
+    description: Admin settings
+  - name: dashboard
+    description: Dashboard stats
+
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  /auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: Logout
+      responses:
+        "200":
+          description: Logged out
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /auth/me:
+    get:
+      operationId: getMe
+      tags: [auth]
+      summary: Get current user
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/change-password:
+    post:
+      operationId: changePassword
+      tags: [auth]
+      summary: Change own password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChangePasswordRequest"
+      responses:
+        "200":
+          description: Password changed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /users:
+    get:
+      operationId: listUsers
+      tags: [users]
+      summary: List all users (admin only)
+      responses:
+        "200":
+          description: List of users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+    post:
+      operationId: createUser
+      tags: [users]
+      summary: Create user (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateUserRequest"
+      responses:
+        "201":
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /users/{id}:
+    get:
+      operationId: getUser
+      tags: [users]
+      summary: Get user by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: User
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    patch:
+      operationId: updateUser
+      tags: [users]
+      summary: Update user (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateUserRequest"
+      responses:
+        "200":
+          description: User updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+    delete:
+      operationId: deleteUser
+      tags: [users]
+      summary: Delete user (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /users/{id}/reset-password:
+    post:
+      operationId: resetUserPassword
+      tags: [users]
+      summary: Reset any user's password (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResetPasswordRequest"
+      responses:
+        "200":
+          description: Password reset
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /sites:
+    get:
+      operationId: listSites
+      tags: [sites]
+      summary: List sites for current user
+      parameters:
+        - name: folderId
+          in: query
+          required: false
+          schema:
+            type: ["integer", "null"]
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of sites
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Site"
+    post:
+      operationId: createSite
+      tags: [sites]
+      summary: Add a new site
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSiteRequest"
+      responses:
+        "201":
+          description: Site created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Site"
+
+  /sites/bulk-add:
+    post:
+      operationId: bulkAddSites
+      tags: [sites]
+      summary: Bulk add multiple sites
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BulkAddSitesRequest"
+      responses:
+        "200":
+          description: Sites added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkAddSitesResponse"
+
+  /sites/auto-connect:
+    post:
+      operationId: autoConnectSite
+      tags: [sites]
+      summary: Auto-connect a WordPress site by URL
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AutoConnectRequest"
+      responses:
+        "200":
+          description: Site connected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Site"
+        "400":
+          description: Connection failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /sites/test-all:
+    post:
+      operationId: testAllSites
+      tags: [sites]
+      summary: Test connection for all user's sites
+      responses:
+        "200":
+          description: Test results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestAllSitesResponse"
+
+  /sites/{id}:
+    get:
+      operationId: getSite
+      tags: [sites]
+      summary: Get site by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Site
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Site"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    patch:
+      operationId: updateSite
+      tags: [sites]
+      summary: Update site
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSiteRequest"
+      responses:
+        "200":
+          description: Site updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Site"
+    delete:
+      operationId: deleteSite
+      tags: [sites]
+      summary: Delete site
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /sites/{id}/test:
+    post:
+      operationId: testSite
+      tags: [sites]
+      summary: Test site connection
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Test result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SiteTestResult"
+
+  /sites/{id}/pin:
+    patch:
+      operationId: toggleSitePin
+      tags: [sites]
+      summary: Toggle pin on a site
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Site updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Site"
+
+  /folders:
+    get:
+      operationId: listFolders
+      tags: [folders]
+      summary: List folders for current user
+      responses:
+        "200":
+          description: List of folders
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Folder"
+    post:
+      operationId: createFolder
+      tags: [folders]
+      summary: Create a folder
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateFolderRequest"
+      responses:
+        "201":
+          description: Folder created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Folder"
+
+  /folders/{id}:
+    patch:
+      operationId: updateFolder
+      tags: [folders]
+      summary: Update folder
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateFolderRequest"
+      responses:
+        "200":
+          description: Folder updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Folder"
+    delete:
+      operationId: deleteFolder
+      tags: [folders]
+      summary: Delete folder
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /articles:
+    get:
+      operationId: listArticles
+      tags: [articles]
+      summary: List articles for current user
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [all, published, draft, failed, scheduled]
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: siteId
+          in: query
+          required: false
+          schema:
+            type: ["integer", "null"]
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of articles
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArticleListResponse"
+
+  /articles/{id}:
+    get:
+      operationId: getArticle
+      tags: [articles]
+      summary: Get article by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Article
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Article"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deleteArticle
+      tags: [articles]
+      summary: Delete article
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /articles/{id}/retry:
+    post:
+      operationId: retryArticle
+      tags: [articles]
+      summary: Retry a failed article
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Article queued for retry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Article"
+
+  /articles/today-urls:
+    get:
+      operationId: getTodayArticleUrls
+      tags: [articles]
+      summary: Get today's published article URLs grouped by site
+      responses:
+        "200":
+          description: Today's article URLs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SiteArticleUrls"
+
+  /generate:
+    post:
+      operationId: generateArticles
+      tags: [generate]
+      summary: Queue article generation jobs
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenerateRequest"
+      responses:
+        "200":
+          description: Generation queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenerateResponse"
+
+  /generate/status:
+    get:
+      operationId: getGenerateStatus
+      tags: [generate]
+      summary: Get current generation queue status
+      responses:
+        "200":
+          description: Generation status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenerateStatus"
+
+  /dashboard/stats:
+    get:
+      operationId: getDashboardStats
+      tags: [dashboard]
+      summary: Get dashboard stats for current user
+      responses:
+        "200":
+          description: Dashboard stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardStats"
+
+  /dashboard/sites-overview:
+    get:
+      operationId: getDashboardSitesOverview
+      tags: [dashboard]
+      summary: Get sites overview for dashboard
+      responses:
+        "200":
+          description: Sites overview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SitesOverview"
+
+  /settings:
+    get:
+      operationId: getSettings
+      tags: [settings]
+      summary: Get application settings (admin only)
+      responses:
+        "200":
+          description: Settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppSettings"
+    patch:
+      operationId: updateSettings
+      tags: [settings]
+      summary: Update application settings (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSettingsRequest"
+      responses:
+        "200":
+          description: Settings updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppSettings"
+
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
+
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+      required:
+        - success
+
+    LoginRequest:
+      type: object
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+      required:
+        - email
+        - password
+
+    AuthResponse:
+      type: object
+      properties:
+        user:
+          $ref: "#/components/schemas/User"
+        token:
+          type: string
+      required:
+        - user
+        - token
+
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+        email:
+          type: string
+        name:
+          type: string
+        role:
+          type: string
+          enum: [admin, author]
+        permissions:
+          $ref: "#/components/schemas/UserPermissions"
+        createdAt:
+          type: string
+      required:
+        - id
+        - email
+        - name
+        - role
+        - createdAt
+
+    UserPermissions:
+      type: object
+      properties:
+        canGenerate:
+          type: boolean
+        canPublish:
+          type: boolean
+        canSchedule:
+          type: boolean
+        canManageSites:
+          type: boolean
+        maxSites:
+          type: ["integer", "null"]
+        maxArticlesPerDay:
+          type: ["integer", "null"]
+      required:
+        - canGenerate
+        - canPublish
+        - canSchedule
+        - canManageSites
+
+    CreateUserRequest:
+      type: object
+      properties:
+        email:
+          type: string
+        name:
+          type: string
+        password:
+          type: string
+        role:
+          type: string
+          enum: [admin, author]
+        permissions:
+          $ref: "#/components/schemas/UserPermissions"
+      required:
+        - email
+        - name
+        - password
+        - role
+
+    UpdateUserRequest:
+      type: object
+      properties:
+        email:
+          type: string
+        name:
+          type: string
+        role:
+          type: string
+          enum: [admin, author]
+        permissions:
+          $ref: "#/components/schemas/UserPermissions"
+
+    ChangePasswordRequest:
+      type: object
+      properties:
+        currentPassword:
+          type: string
+        newPassword:
+          type: string
+      required:
+        - currentPassword
+        - newPassword
+
+    ResetPasswordRequest:
+      type: object
+      properties:
+        newPassword:
+          type: string
+      required:
+        - newPassword
+
+    Site:
+      type: object
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        folderId:
+          type: ["integer", "null"]
+        name:
+          type: string
+        url:
+          type: string
+        username:
+          type: string
+        status:
+          type: string
+          enum: [connected, disconnected, pending]
+        isPinned:
+          type: boolean
+        category:
+          type: string
+        lastTested:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+      required:
+        - id
+        - userId
+        - name
+        - url
+        - username
+        - status
+        - isPinned
+        - createdAt
+
+    CreateSiteRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        url:
+          type: string
+        username:
+          type: string
+        applicationPassword:
+          type: string
+        folderId:
+          type: ["integer", "null"]
+        category:
+          type: string
+      required:
+        - url
+        - username
+        - applicationPassword
+
+    UpdateSiteRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        url:
+          type: string
+        username:
+          type: string
+        applicationPassword:
+          type: string
+        folderId:
+          type: ["integer", "null"]
+        category:
+          type: string
+        isPinned:
+          type: boolean
+
+    BulkAddSitesRequest:
+      type: object
+      properties:
+        sites:
+          type: array
+          items:
+            $ref: "#/components/schemas/CreateSiteRequest"
+      required:
+        - sites
+
+    BulkAddSitesResponse:
+      type: object
+      properties:
+        added:
+          type: integer
+        failed:
+          type: integer
+        sites:
+          type: array
+          items:
+            $ref: "#/components/schemas/Site"
+      required:
+        - added
+        - failed
+        - sites
+
+    AutoConnectRequest:
+      type: object
+      properties:
+        url:
+          type: string
+        folderId:
+          type: ["integer", "null"]
+      required:
+        - url
+
+    SiteTestResult:
+      type: object
+      properties:
+        siteId:
+          type: integer
+        success:
+          type: boolean
+        message:
+          type: string
+      required:
+        - siteId
+        - success
+        - message
+
+    TestAllSitesResponse:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/SiteTestResult"
+        totalTested:
+          type: integer
+        totalPassed:
+          type: integer
+        totalFailed:
+          type: integer
+      required:
+        - results
+        - totalTested
+        - totalPassed
+        - totalFailed
+
+    Folder:
+      type: object
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        name:
+          type: string
+        siteCount:
+          type: integer
+        createdAt:
+          type: string
+      required:
+        - id
+        - userId
+        - name
+        - siteCount
+        - createdAt
+
+    CreateFolderRequest:
+      type: object
+      properties:
+        name:
+          type: string
+      required:
+        - name
+
+    UpdateFolderRequest:
+      type: object
+      properties:
+        name:
+          type: string
+
+    Article:
+      type: object
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        siteId:
+          type: ["integer", "null"]
+        siteName:
+          type: ["string", "null"]
+        siteUrl:
+          type: ["string", "null"]
+        keyword:
+          type: string
+        title:
+          type: ["string", "null"]
+        content:
+          type: ["string", "null"]
+        language:
+          type: string
+        wordCount:
+          type: ["integer", "null"]
+        status:
+          type: string
+          enum: [queued, generating, published, draft, failed, scheduled]
+        publishedUrl:
+          type: ["string", "null"]
+        featuredImageUrl:
+          type: ["string", "null"]
+        scheduledAt:
+          type: ["string", "null"]
+        publishedAt:
+          type: ["string", "null"]
+        errorMessage:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+      required:
+        - id
+        - userId
+        - keyword
+        - language
+        - status
+        - createdAt
+
+    ArticleListResponse:
+      type: object
+      properties:
+        articles:
+          type: array
+          items:
+            $ref: "#/components/schemas/Article"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+      required:
+        - articles
+        - total
+        - page
+        - limit
+
+    SiteArticleUrls:
+      type: object
+      properties:
+        siteName:
+          type: string
+        siteUrl:
+          type: string
+        articles:
+          type: array
+          items:
+            $ref: "#/components/schemas/ArticleUrl"
+      required:
+        - siteName
+        - siteUrl
+        - articles
+
+    ArticleUrl:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        url:
+          type: string
+        publishedAt:
+          type: string
+      required:
+        - id
+        - title
+        - url
+        - publishedAt
+
+    GenerateRequest:
+      type: object
+      properties:
+        keywords:
+          type: array
+          items:
+            type: string
+        siteIds:
+          type: array
+          items:
+            type: integer
+        language:
+          type: string
+          default: english
+        wordCount:
+          type: integer
+          default: 800
+        model:
+          type: string
+        imageSource:
+          type: string
+          enum: [pollinations, url, none]
+          default: pollinations
+        imageUrl:
+          type: ["string", "null"]
+        scheduledAt:
+          type: ["string", "null"]
+        writingStyle:
+          type: ["string", "null"]
+        includeInternalLinks:
+          type: boolean
+          default: true
+      required:
+        - keywords
+        - siteIds
+
+    GenerateResponse:
+      type: object
+      properties:
+        queued:
+          type: integer
+        jobIds:
+          type: array
+          items:
+            type: integer
+      required:
+        - queued
+        - jobIds
+
+    GenerateStatus:
+      type: object
+      properties:
+        queueLength:
+          type: integer
+        processing:
+          type: integer
+        completed:
+          type: integer
+        failed:
+          type: integer
+      required:
+        - queueLength
+        - processing
+        - completed
+        - failed
+
+    DashboardStats:
+      type: object
+      properties:
+        totalSites:
+          type: integer
+        connectedSites:
+          type: integer
+        publishedToday:
+          type: integer
+        draftsToday:
+          type: integer
+        failedToday:
+          type: integer
+        totalArticles:
+          type: integer
+        totalPublished:
+          type: integer
+        totalFailed:
+          type: integer
+        totalDrafts:
+          type: integer
+        scheduledCount:
+          type: integer
+      required:
+        - totalSites
+        - connectedSites
+        - publishedToday
+        - draftsToday
+        - failedToday
+        - totalArticles
+        - totalPublished
+        - totalFailed
+        - totalDrafts
+        - scheduledCount
+
+    SitesOverview:
+      type: object
+      properties:
+        totalActive:
+          type: integer
+        totalConnected:
+          type: integer
+        sites:
+          type: array
+          items:
+            $ref: "#/components/schemas/SiteSummary"
+      required:
+        - totalActive
+        - totalConnected
+        - sites
+
+    SiteSummary:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        url:
+          type: string
+        status:
+          type: string
+        category:
+          type: string
+        articlesPublished:
+          type: integer
+      required:
+        - id
+        - name
+        - url
+        - status
+        - articlesPublished
+
+    AppSettings:
+      type: object
+      properties:
+        longcatApiKey:
+          type: string
+        longcatModel:
+          type: string
+        pollinationsEnabled:
+          type: boolean
+        defaultLanguage:
+          type: string
+        defaultWordCount:
+          type: integer
+        concurrentGenerations:
+          type: integer
+        customApis:
+          type: array
+          items:
+            $ref: "#/components/schemas/CustomApi"
+      required:
+        - longcatApiKey
+        - longcatModel
+        - pollinationsEnabled
+        - defaultLanguage
+        - defaultWordCount
+        - concurrentGenerations
+        - customApis
+
+    UpdateSettingsRequest:
+      type: object
+      properties:
+        longcatApiKey:
+          type: string
+        longcatModel:
+          type: string
+        pollinationsEnabled:
+          type: boolean
+        defaultLanguage:
+          type: string
+        defaultWordCount:
+          type: integer
+        concurrentGenerations:
+          type: integer
+        customApis:
+          type: array
+          items:
+            $ref: "#/components/schemas/CustomApi"
+
+    CustomApi:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        baseUrl:
+          type: string
+        apiKey:
+          type: string
+        isDefault:
+          type: boolean
+      required:
+        - id
+        - name
+        - baseUrl
+        - apiKey
+        - isDefault
