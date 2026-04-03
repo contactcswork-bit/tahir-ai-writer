@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db, articlesTable, sitesTable } from "@workspace/db";
-import { eq, and, desc, gte, ilike, or, isNotNull, count } from "drizzle-orm";
+import { eq, and, desc, gte, ilike, or, isNotNull, count, inArray } from "drizzle-orm";
 import { requireAuth } from "../lib/auth";
 import {
   ListArticlesQueryParams,
@@ -161,6 +161,46 @@ router.post("/articles/:id/retry", requireAuth, async (req, res): Promise<void> 
 
   const [updated] = await db.select().from(articlesTable).where(eq(articlesTable.id, article.id));
   res.json({ ...updated, siteName: null, siteUrl: null });
+});
+
+// Cancel a single stuck/generating/queued article
+router.post("/articles/bulk-cancel", requireAuth, async (req, res): Promise<void> => {
+  const user = (req as any).user;
+  const { ids } = req.body as { ids: number[] };
+  if (!Array.isArray(ids) || ids.length === 0) {
+    res.status(400).json({ error: "ids must be a non-empty array" });
+    return;
+  }
+  const numericIds = ids.map(Number).filter(Boolean);
+  await db.update(articlesTable).set({
+    status: "failed",
+    errorMessage: "Cancelled by user",
+  }).where(
+    and(
+      eq(articlesTable.userId, user.id),
+      inArray(articlesTable.id, numericIds)
+    )
+  );
+  res.json({ success: true, cancelled: numericIds.length });
+});
+
+router.post("/articles/:id/cancel", requireAuth, async (req, res): Promise<void> => {
+  const user = (req as any).user;
+  const params = GetArticleParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+  await db.update(articlesTable).set({
+    status: "failed",
+    errorMessage: "Cancelled by user",
+  }).where(
+    and(
+      eq(articlesTable.id, params.data.id),
+      eq(articlesTable.userId, user.id)
+    )
+  );
+  res.json({ success: true });
 });
 
 export default router;
