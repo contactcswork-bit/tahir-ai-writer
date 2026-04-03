@@ -71,6 +71,42 @@ async function getPollinationsImageUrl(keyword: string, settings: any): Promise<
   }
 }
 
+async function fetchImageWithRetry(imageUrl: string, maxRetries = 4): Promise<Response | null> {
+  const delays = [0, 3000, 6000, 12000];
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    if (attempt > 0) {
+      await new Promise((r) => setTimeout(r, delays[attempt] ?? 12000));
+    }
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 90000);
+    try {
+      const res = await fetch(imageUrl, {
+        redirect: "follow",
+        signal: controller.signal,
+        headers: {
+          "User-Agent": "Mozilla/5.0 (compatible; TahirAIWriter/1.0; +https://replit.com)",
+          "Accept": "image/*,*/*;q=0.8",
+        },
+      });
+      clearTimeout(timeout);
+      if (res.status === 429) {
+        logger.warn({ attempt, imageUrl }, "Pollinations rate limited (429), retrying...");
+        continue;
+      }
+      if (!res.ok) {
+        logger.warn({ status: res.status, attempt }, "Image fetch non-ok response");
+        return null;
+      }
+      return res;
+    } catch (err) {
+      clearTimeout(timeout);
+      logger.warn({ err, attempt }, "Image fetch error, retrying...");
+    }
+  }
+  logger.warn({ imageUrl }, "Image fetch failed after all retries");
+  return null;
+}
+
 async function uploadImageToWordPress(
   site: any,
   credentials: string,
@@ -79,10 +115,14 @@ async function uploadImageToWordPress(
   keyword: string
 ): Promise<number | null> {
   try {
-    const imgResponse = await fetch(imageUrl, { redirect: "follow" });
-    if (!imgResponse.ok) return null;
+    const imgResponse = await fetchImageWithRetry(imageUrl);
+    if (!imgResponse) return null;
 
     const imageBuffer = await imgResponse.arrayBuffer();
+    if (!imageBuffer.byteLength) {
+      logger.warn("Image buffer empty, skipping upload");
+      return null;
+    }
     const contentType = imgResponse.headers.get("content-type") || "image/jpeg";
     const ext = contentType.includes("png") ? "png" : "jpg";
     const filename = `${slugify(keyword)}-${Date.now()}.${ext}`;
@@ -192,53 +232,29 @@ async function callAI(keyword: string, language: string, wordCount: number, sett
   const model = settings?.longcatModel || "LongCat-Flash-Chat";
   const url = "https://api.longcat.chat/openai/v1/chat/completions";
 
-  const prompt = `You are an expert SEO content writer. Write a comprehensive, high-quality blog article about "${keyword}" in ${language}.
+  const langInstruction = language.toLowerCase() === "english"
+    ? "Write entirely in English."
+    : `Write ENTIRELY in ${language}. Every word — title, meta description, tags, category, and article body — must be in ${language}. Do not use English anywhere.`;
 
-Return your response as a single JSON object with EXACTLY these fields (no other text before or after):
+  const targetTokens = Math.min(Math.max(Math.round(wordCount * 2.2), 2000), 6000);
 
-{
-  "title": "Compelling, click-worthy title (no year unless needed, no clickbait, max 65 chars)",
-  "metaDescription": "SEO meta description, exactly under 155 characters, compelling and includes the keyword naturally",
-  "category": "Single most relevant category name (e.g. Technology, Health, Finance, Travel, etc.)",
-  "tags": ["tag1", "tag2", "tag3", "tag4", "tag5"],
-  "content": "FULL HTML article here"
-}
+  const prompt = `You are an expert SEO content writer. Write a blog article about "${keyword}".
+${langInstruction}
 
-CONTENT REQUIREMENTS:
-- Approximately ${wordCount} words (not counting HTML tags)
-- Language: ${language}
-- Current year context: 2026 (do NOT mention 2024 or 2025 as current)
-- Start with <h2> sections directly (no <h1> in content - title is separate)
-- 3-4 H2 sections, each with optional H3 subsections
-- Short paragraphs: 2-3 sentences max. No walls of text.
-- Include at least 2 bulleted/numbered lists: <ul><li>...</li></ul>
-- Bold important terms: <strong>term</strong>
-- Include 2 natural internal links: <a href="https://example.com/related-topic">anchor text</a>
-- Include 1-2 external authority links (Wikipedia, well-known sources)
-- Use "${keyword}" naturally in intro, at least one H2, and 3-5 times total
-- End with a strong conclusion H2
+Respond with ONLY a JSON object — no text before or after, no markdown fences:
 
-TITLE REQUIREMENTS:
-- Engaging, benefit-driven or curiosity-driven
-- No "Ultimate Guide to..." or "Everything You Need to Know" clichés
-- No years like 2024, 2025 in the title
-- Max 65 characters
+{"title":"...","metaDescription":"...","category":"...","tags":["...","...","...","...","..."],"content":"..."}
 
-META DESCRIPTION:
-- Must be under 155 characters
-- Include the keyword naturally
-- Make it compelling to click
+RULES:
+- title: max 65 chars, engaging, no clichés, no years (2024/2025)
+- metaDescription: under 155 chars, includes keyword, compelling
+- category: single broad category (Technology/Health/Finance/Travel/Business/Lifestyle etc)
+- tags: exactly 5, mix of broad and specific, short phrases
+- content: ~${wordCount} words of HTML; start with <h2> (no <h1>); 3-4 H2 sections with optional H3s; short paragraphs (2-3 sentences); at least 2 lists <ul><li>; bold key terms <strong>; 1-2 external links to real authoritative sources (Wikipedia, official sites — NO example.com, NO placeholder URLs); use "${keyword}" naturally in intro, one H2, and 3-5 times total; end with conclusion H2
+- current year is 2026
+- NO placeholder links, NO example.com, NO fake URLs
 
-TAGS (exactly 5):
-- Mix of broad and specific
-- Related to the keyword and content
-- Single words or short phrases
-
-CATEGORY:
-- Single most fitting parent category
-- Keep it broad (Technology, Health, Finance, Travel, Business, Lifestyle, etc.)
-
-Return ONLY the JSON. No markdown fences. No explanation.`;
+Return ONLY the JSON.`;
 
   const response = await fetch(url, {
     method: "POST",
@@ -249,7 +265,8 @@ Return ONLY the JSON. No markdown fences. No explanation.`;
     body: JSON.stringify({
       model,
       messages: [{ role: "user", content: prompt }],
-      max_tokens: 8000,
+      max_tokens: targetTokens,
+      temperature: 0.7,
     }),
   });
 
@@ -309,11 +326,6 @@ async function publishToWordPress(
     excerpt: aiResult.metaDescription,
     slug,
     status: wpStatus,
-    meta: {
-      yoast_wpseo_metadesc: aiResult.metaDescription,
-      _yoast_wpseo_metadesc: aiResult.metaDescription,
-      rank_math_description: aiResult.metaDescription,
-    },
   };
 
   if (tagIds.length > 0) payload.tags = tagIds;
@@ -335,7 +347,37 @@ async function publishToWordPress(
   }
 
   const post = await response.json() as any;
-  return post.link || `${siteUrl}/?p=${post.id}`;
+  const postId: number = post.id;
+  const postLink: string = post.link || `${siteUrl}/?p=${postId}`;
+
+  // Update Yoast SEO meta description as a separate PATCH (required for Yoast to pick it up)
+  try {
+    const metaPayload: any = {
+      meta: {
+        yoast_wpseo_metadesc: aiResult.metaDescription,
+        rank_math_description: aiResult.metaDescription,
+      },
+    };
+    if (featuredMediaId) metaPayload.featured_media = featuredMediaId;
+
+    const patchRes = await fetch(`${siteUrl}/wp-json/wp/v2/posts/${postId}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Basic ${credentials}`,
+        "X-HTTP-Method-Override": "PATCH",
+      },
+      body: JSON.stringify(metaPayload),
+    });
+    if (!patchRes.ok) {
+      const patchErr = await patchRes.text();
+      logger.warn({ patchErr }, "Yoast meta PATCH failed (non-fatal)");
+    }
+  } catch (err) {
+    logger.warn({ err }, "Yoast meta PATCH exception (non-fatal)");
+  }
+
+  return postLink;
 }
 
 async function generateArticle(articleId: number): Promise<void> {
@@ -351,6 +393,13 @@ async function generateArticle(articleId: number): Promise<void> {
     const wordCount = article.wordCount || 800;
     const publishNow = article.publishNow === 1;
 
+    let imageUrlPromise: Promise<string | null> = Promise.resolve(null);
+    if (article.imageSource === "pollinations" && settings?.pollinationsEnabled !== false) {
+      imageUrlPromise = getPollinationsImageUrl(article.keyword, settings);
+    } else if (article.imageSource === "url" && article.featuredImageUrl) {
+      imageUrlPromise = Promise.resolve(article.featuredImageUrl);
+    }
+
     const aiResult = await callAI(article.keyword, language, wordCount, settings);
 
     const cleanContent = aiResult.content
@@ -363,12 +412,16 @@ async function generateArticle(articleId: number): Promise<void> {
     const wordCountActual = cleanContent.replace(/<[^>]+>/g, "").split(/\s+/).filter(Boolean).length;
     const slug = slugify(article.keyword);
 
-    let featuredImageUrl: string | null = null;
-    if (article.imageSource === "pollinations" && settings?.pollinationsEnabled !== false) {
-      featuredImageUrl = await getPollinationsImageUrl(article.keyword, settings);
-    } else if (article.imageSource === "url" && article.featuredImageUrl) {
-      featuredImageUrl = article.featuredImageUrl;
-    }
+    // Step 1: Save generated content immediately (content is ready, image pending)
+    await db.update(articlesTable).set({
+      status: "generating",
+      title: aiResult.title,
+      content: cleanContent,
+      wordCount: wordCountActual,
+    }).where(eq(articlesTable.id, articleId));
+
+    // Step 2: Fetch image URL (may be a Pollinations URL or direct URL)
+    const featuredImageUrl = await imageUrlPromise;
 
     if (article.siteId) {
       const [site] = await db.select().from(sitesTable).where(eq(sitesTable.id, article.siteId));
@@ -379,9 +432,6 @@ async function generateArticle(articleId: number): Promise<void> {
         if (scheduledAt && scheduledAt > now) {
           await db.update(articlesTable).set({
             status: "scheduled",
-            title: aiResult.title,
-            content: cleanContent,
-            wordCount: wordCountActual,
             featuredImageUrl,
           }).where(eq(articlesTable.id, articleId));
           return;
@@ -390,6 +440,7 @@ async function generateArticle(articleId: number): Promise<void> {
         const credentials = Buffer.from(`${site.username}:${site.applicationPassword}`).toString("base64");
         const siteUrl = site.url.replace(/\/$/, "");
 
+        // Step 3: Download image and upload to WordPress media library
         let featuredMediaId: number | null = null;
         if (featuredImageUrl) {
           featuredMediaId = await uploadImageToWordPress(site, credentials, siteUrl, featuredImageUrl, article.keyword);
@@ -398,13 +449,12 @@ async function generateArticle(articleId: number): Promise<void> {
         const wpStatus = publishNow ? "publish" : "draft";
         const dbStatus = publishNow ? "published" : "draft";
 
+        // Step 4: Publish to WordPress (with Yoast meta PATCH)
         const publishedUrl = await publishToWordPress(site, aiResult, featuredMediaId, slug, wpStatus);
 
+        // Step 5: Mark complete
         await db.update(articlesTable).set({
           status: dbStatus,
-          title: aiResult.title,
-          content: cleanContent,
-          wordCount: wordCountActual,
           featuredImageUrl,
           publishedUrl,
           publishedAt: publishNow ? new Date() : null,
@@ -417,9 +467,6 @@ async function generateArticle(articleId: number): Promise<void> {
 
     await db.update(articlesTable).set({
       status: "draft",
-      title: aiResult.title,
-      content: cleanContent,
-      wordCount: wordCountActual,
       featuredImageUrl,
     }).where(eq(articlesTable.id, articleId));
 
