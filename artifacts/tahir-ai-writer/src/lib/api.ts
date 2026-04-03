@@ -1,5 +1,7 @@
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-const API_BASE = `${BASE}/api`;
+// VITE_API_URL: full origin of the API server (e.g. https://my-api.replit.app).
+// Falls back to relative path for local development.
+const API_ORIGIN = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
+const API_BASE = API_ORIGIN ? `${API_ORIGIN}/api` : "/api";
 
 export function apiFetch(path: string, options: RequestInit = {}): Promise<Response> {
   const token = localStorage.getItem("auth_token");
