@@ -8,16 +8,14 @@ import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent } from "@/components/ui/card";
 
 export default function FailedArticles() {
-  const { data, refetch } = useListArticles({ 
-    query: { 
-      queryKey: ["articles", { status: "failed", page: 1, limit: 100 }] 
-    } 
-  });
-  
+  const { data, refetch } = useListArticles(
+    { status: "failed", page: 1, limit: 100 }
+  );
+
   const retryMutation = useRetryArticle();
   const { toast } = useToast();
 
-  const articles = data?.articles || [];
+  const articles = (data?.articles || []).filter((a) => a.status === "failed");
 
   const handleRetry = async (id: number) => {
     try {
