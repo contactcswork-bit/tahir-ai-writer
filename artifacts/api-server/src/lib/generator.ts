@@ -441,59 +441,82 @@ async function callAI(keyword: string, language: string, wordCount: number, sett
   // Use generous tokens — no credit limits, prioritize quality
   const targetTokens = Math.max(Math.round(wordCount * 3.5), 8000);
 
-  const prompt = `You are a senior SEO content strategist and expert writer with 15 years of experience ranking articles on Google. Write a comprehensive, authoritative blog article about "${keyword}".
+  // Pick a random title style so articles don't all follow the same pattern
+  const titleStyles = [
+    `A natural, compelling title that includes "${keyword}" — lead with a curiosity hook or strong benefit. No year.`,
+    `A question-style title that includes "${keyword}" — something a real person would search. No year.`,
+    `A "how-to" or instructional title that includes "${keyword}" — clear, direct, action-oriented. No year.`,
+    `A list-style title that includes "${keyword}" — e.g., "7 Ways to..." or "5 Things About...". No year.`,
+    `A contrarian or surprising title that includes "${keyword}" — challenges common assumptions. No year.`,
+  ];
+  const titleStyle = titleStyles[Math.floor(Math.random() * titleStyles.length)];
+
+  // Pick a random content angle so articles don't share the same opening style
+  const contentAngles = [
+    "Start with a surprising statistic or counterintuitive fact that reframes the topic.",
+    "Start with a short, vivid real-world scenario or anecdote that puts the reader in a situation.",
+    "Start with a direct, bold claim that challenges what most people think about this topic.",
+    "Start with an honest admission of what most guides get wrong about this topic.",
+    "Start with a practical question the reader is likely already asking themselves.",
+  ];
+  const contentAngle = contentAngles[Math.floor(Math.random() * contentAngles.length)];
+
+  const prompt = `You are an experienced journalist and SEO expert. Write a high-quality, reader-first blog article about "${keyword}".
 ${langInstruction}
 
 Respond with ONLY a valid JSON object — no text before or after, no markdown fences:
+{"title":"...","metaDescription":"...","category":"...","tags":["...","...","..."],"content":"..."}
 
-{"title":"...","metaDescription":"...","category":"...","tags":["...","...","...","...","..."],"content":"..."}
-
-=== TITLE RULES (CRITICAL) ===
-The title MUST contain the EXACT keyword phrase "${keyword}" verbatim, word-for-word, without shortening, paraphrasing, or reordering any words. Add 2-5 powerful SEO words (e.g., "Best", "Proven", "Ultimate", "Complete", "Expert", "Top", "Effective", "Essential") before or after to make the full title 10-15 words. No years. No clichés like "dive into" or "unleash".
-Example: keyword "blue running shoes for men" → title "Best Blue Running Shoes for Men That Deliver Proven Performance"
+=== TITLE ===
+${titleStyle}
+The title MUST include the exact phrase "${keyword}" verbatim. Keep it under 70 characters. No clichés like "dive into", "unleash", "in today's world".
 
 === META DESCRIPTION ===
-Under 155 characters. Include "${keyword}" naturally. Make it compelling and action-driven to improve click-through rate.
+Under 155 characters. Include "${keyword}" naturally. Compelling, specific, tells the reader exactly what they'll get.
 
 === CATEGORY ===
-A SPECIFIC, topic-based category derived directly from the keyword (e.g., "Kitchen Appliances", "Digital Marketing", "Weight Loss"). NEVER use: Blog, General, Uncategorized, News, Articles, Posts.
+A specific, niche-relevant category name based on the keyword topic (e.g., "Fitness Nutrition", "Personal Finance", "Web Development"). Never: Blog, General, Uncategorized, News, Posts.
 
 === TAGS ===
-Exactly 5 tags — mix of broad topic, specific niche, and long-tail variations of the keyword.
+3 to 5 tags that are semantically relevant to the keyword — mix of broad and specific.
 
-=== CONTENT (HIGH QUALITY REQUIREMENTS) ===
-Write ~${wordCount} words of clean, semantic HTML. This must read like an expert-authored article, NOT generic AI content.
+=== CONTENT ===
+Write approximately ${wordCount} words of clean HTML. IMPORTANT: Do NOT follow a generic template. 
 
-STRUCTURE:
-1. Opening paragraph (NO heading) — hook the reader with a bold statement, surprising stat, or relatable problem. Naturally include "${keyword}" in the first 2 sentences. Promise what the reader will learn. 3-4 sentences.
-2. 5-7 <h2> sections covering the topic thoroughly — each with 3-4 meaty paragraphs (4-6 sentences each). Go deep, not shallow.
-3. At least one <h2> heading must naturally contain "${keyword}" verbatim.
-4. Under at least 2 <h2>s, add 2-3 <h3> sub-sections for depth.
-5. Include at least ONE HTML table (<table><thead><tr><th>…</th></tr></thead><tbody>…</tbody></table>) — for comparison, pros/cons, quick reference, or key stats.
-6. Include a dedicated <h2>Frequently Asked Questions</h2> section with 4-5 Q&A pairs using <h3> for each question and <p> for the answer.
-7. At least 2 <ul> bullet lists AND at least 1 <ol> numbered list.
-8. Use <blockquote> for 1-2 key expert tips or important callouts.
-9. Bold important terms and phrases with <strong>.
-10. 1-2 external links to genuinely real, authoritative sources (Wikipedia, government sites, major publications — NEVER example.com or fake URLs). Use descriptive anchor text.
-11. End with a <h2>Final Thoughts</h2> (or equivalent) section summarizing key takeaways and a clear call-to-action for the reader.
+First, decide what kind of article best serves someone searching "${keyword}":
+- Is it a how-to guide? Then use step-by-step structure with <ol>.
+- Is it a comparison or review? Use pros/cons, comparison tables naturally.
+- Is it an informational explainer? Use logical sections that flow from basics to advanced.
+- Is it a listicle? Organize around numbered or categorized items.
+- Is it a problem/solution article? Lead with the pain point, then solutions.
 
-WRITING QUALITY:
-- Write like a real expert who deeply understands this topic — add specific details, nuance, and insights
-- Vary sentence length and structure — mix short punchy sentences with longer explanatory ones
-- Use transition phrases between paragraphs for smooth flow
-- Include specific examples, scenarios, or use cases to illustrate points
-- Avoid filler phrases: "In today's world", "In conclusion", "It is worth noting", "It goes without saying"
-- NEVER use: "${keyword}" more than 6 times total (avoid keyword stuffing)
-- Use LSI keywords and natural semantic variations of the topic
-- Current year is 2026
+Choose the structure that FITS THE TOPIC, not a standard template.
 
-FORBIDDEN:
-- No placeholder links, no example.com, no fake URLs
-- No H1 tags (WordPress adds the title as H1)
-- No keyword stuffing
-- No thin, vague, or generic paragraphs
+OPENING (no heading before first paragraph):
+${contentAngle} Naturally weave in "${keyword}" within the first 2–3 sentences. 3–5 sentences total.
 
-Return ONLY the JSON object.`;
+BODY STRUCTURE (choose what fits the topic):
+- Use <h2> for major sections and <h3> for sub-points where they add clarity — not by default
+- Number of sections should be determined by the content, not a fixed count
+- Use <ul> or <ol> where listing genuinely helps the reader — don't force them
+- Use a <table> only if comparing options, showing stats, or organizing structured data naturally
+- Use <blockquote> for a genuinely insightful quote, expert opinion, or important callout — 0 or 1 max
+- Include 1–2 external links to real, authoritative sources (Wikipedia, gov sites, major journals) with descriptive anchor text — never example.com or fake URLs
+- Use <strong> for terms the reader genuinely needs to notice
+
+CLOSING:
+End the article naturally — a summary, a call to action, or a forward-looking thought. The heading should fit the article's tone (don't force "Final Thoughts" if something else works better).
+
+WRITING RULES:
+- Write like a real person who knows this topic deeply, not an AI filling a template
+- Vary sentence rhythm — some short and punchy, some detailed and explanatory
+- Each section must add new value — no padding, no restating the same point differently
+- Use specific examples, real scenarios, and concrete details — not vague generalities
+- Use "${keyword}" naturally, maximum 5–6 times total — rely on semantic variations
+- Avoid all filler: "In today's world", "It is worth noting", "As we all know", "In conclusion"
+- No H1 tags — WordPress adds the title automatically
+
+Return ONLY the JSON object, nothing else.`;
 
   const response = await fetch(url, {
     method: "POST",
@@ -505,7 +528,7 @@ Return ONLY the JSON object.`;
       model,
       messages: [{ role: "user", content: prompt }],
       max_tokens: targetTokens,
-      temperature: 0.65,
+      temperature: 0.82,
     }),
   });
 
