@@ -12,7 +12,7 @@ import { useToast } from "@/hooks/use-toast";
 import { toastError } from "@/lib/errors";
 import {
   PenLine, Zap, List, Sparkles, Calendar, FileText,
-  Loader2, Pin, Globe, Clock, Send
+  Loader2, Pin, Globe, Clock, Send, Lightbulb, Copy, Check, PlusCircle
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
@@ -35,6 +35,12 @@ export default function Generate() {
   const [selectedSites, setSelectedSites] = useState<number[]>([]);
   const [publishNow, setPublishNow] = useState(false);
   const [queueItems, setQueueItems] = useState<QueueItem[]>([]);
+  // Keyword suggestions
+  const [niche, setNiche] = useState("");
+  const [suggestLoading, setSuggestLoading] = useState(false);
+  const [suggestedKeywords, setSuggestedKeywords] = useState<string[]>([]);
+  const [selectedSuggestions, setSelectedSuggestions] = useState<Set<number>>(new Set());
+  const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
 
   const { data: sites = [] } = useListSites();
   const generateMutation = useGenerateArticles();
@@ -123,6 +129,53 @@ export default function Generate() {
     } catch (e: unknown) {
       toast(toastError(e));
     }
+  };
+
+  const handleSuggestKeywords = async () => {
+    if (!niche.trim()) {
+      toast({ title: "Enter a niche", description: "Type a niche topic first (e.g. technology, fitness, gaming)", variant: "destructive" });
+      return;
+    }
+    setSuggestLoading(true);
+    setSuggestedKeywords([]);
+    setSelectedSuggestions(new Set());
+    try {
+      const res = await apiFetch("/generate/suggest-keywords", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ niche: niche.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to get suggestions");
+      setSuggestedKeywords(data.keywords || []);
+    } catch (e: unknown) {
+      toast(toastError(e));
+    } finally {
+      setSuggestLoading(false);
+    }
+  };
+
+  const toggleSuggestion = (idx: number) => {
+    setSelectedSuggestions(prev => {
+      const next = new Set(prev);
+      next.has(idx) ? next.delete(idx) : next.add(idx);
+      return next;
+    });
+  };
+
+  const addSuggestionsToKeywords = (indices: number[]) => {
+    const toAdd = indices.map(i => suggestedKeywords[i]).filter(Boolean);
+    const existing = keywords.split("\n").map(k => k.trim()).filter(Boolean);
+    const merged = [...new Set([...existing, ...toAdd])];
+    setKeywords(merged.join("\n"));
+    setSelectedSuggestions(new Set());
+    toast({ title: `${toAdd.length} keyword${toAdd.length !== 1 ? "s" : ""} added`, description: "Scroll up to see them in the keywords box." });
+  };
+
+  const copySingleKeyword = async (kw: string, idx: number) => {
+    await navigator.clipboard.writeText(kw);
+    setCopiedIdx(idx);
+    setTimeout(() => setCopiedIdx(null), 1500);
   };
 
   const pendingCount = queueItems.filter(i => i.status === "queued").length;
@@ -458,6 +511,146 @@ export default function Generate() {
         </div>
 
       </div>
+
+      {/* ── AI Keyword Suggestions ── */}
+      <div className="mt-6">
+        <Card className="shadow-sm">
+          <CardHeader className="pb-4 border-b border-gray-100 dark:border-zinc-800">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-full bg-amber-100 dark:bg-amber-950/40 flex items-center justify-center shrink-0">
+                <Lightbulb className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+              </div>
+              <div>
+                <CardTitle className="text-base">AI Keyword Suggestions</CardTitle>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5 font-normal">
+                  Enter your niche — AI will generate 10 ready-to-use SEO keywords
+                </p>
+              </div>
+            </div>
+          </CardHeader>
+
+          <CardContent className="pt-5 space-y-4">
+            {/* Niche input row */}
+            <div className="flex gap-2.5">
+              <Input
+                placeholder="e.g. technology, fitness, gaming, finance..."
+                value={niche}
+                onChange={(e) => setNiche(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleSuggestKeywords()}
+                className="bg-white dark:bg-zinc-950 flex-1"
+              />
+              <Button
+                onClick={handleSuggestKeywords}
+                disabled={suggestLoading}
+                className="shrink-0 gap-2"
+              >
+                {suggestLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Sparkles className="w-4 h-4" />
+                )}
+                {suggestLoading ? "Generating..." : "Suggest Keywords"}
+              </Button>
+            </div>
+
+            {/* Loading skeleton */}
+            {suggestLoading && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                {Array.from({ length: 10 }).map((_, i) => (
+                  <div
+                    key={i}
+                    className="h-10 rounded-lg bg-gray-100 dark:bg-zinc-800 animate-pulse"
+                    style={{ animationDelay: `${i * 60}ms` }}
+                  />
+                ))}
+              </div>
+            )}
+
+            {/* Keyword chips */}
+            {!suggestLoading && suggestedKeywords.length > 0 && (
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {suggestedKeywords.map((kw, idx) => {
+                    const selected = selectedSuggestions.has(idx);
+                    return (
+                      <div
+                        key={idx}
+                        onClick={() => toggleSuggestion(idx)}
+                        className={`group flex items-center gap-2.5 px-3.5 py-2.5 rounded-lg border cursor-pointer select-none transition-all ${
+                          selected
+                            ? "border-primary bg-primary/5 ring-1 ring-primary/20"
+                            : "border-gray-200 dark:border-zinc-800 hover:border-primary/40 hover:bg-gray-50 dark:hover:bg-zinc-900"
+                        }`}
+                      >
+                        <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors ${
+                          selected ? "bg-primary border-primary text-white" : "border-gray-300 dark:border-zinc-600"
+                        }`}>
+                          {selected && <Check className="w-2.5 h-2.5 stroke-[3]" />}
+                        </div>
+                        <span className="flex-1 text-sm font-medium truncate">{kw}</span>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); copySingleKeyword(kw, idx); }}
+                          className="shrink-0 w-6 h-6 rounded flex items-center justify-center text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-zinc-700 transition-colors opacity-0 group-hover:opacity-100"
+                          title="Copy keyword"
+                        >
+                          {copiedIdx === idx ? (
+                            <Check className="w-3.5 h-3.5 text-green-500 stroke-[2.5]" />
+                          ) : (
+                            <Copy className="w-3.5 h-3.5" />
+                          )}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Action buttons */}
+                <div className="flex flex-wrap gap-2.5 pt-1 border-t border-gray-100 dark:border-zinc-800">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={selectedSuggestions.size === 0}
+                    onClick={() => addSuggestionsToKeywords(Array.from(selectedSuggestions))}
+                    className="gap-1.5"
+                  >
+                    <PlusCircle className="w-3.5 h-3.5" />
+                    Add Selected ({selectedSuggestions.size})
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => addSuggestionsToKeywords(suggestedKeywords.map((_, i) => i))}
+                    className="gap-1.5"
+                  >
+                    <PlusCircle className="w-3.5 h-3.5" />
+                    Add All 10
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setSelectedSuggestions(
+                      selectedSuggestions.size === suggestedKeywords.length
+                        ? new Set()
+                        : new Set(suggestedKeywords.map((_, i) => i))
+                    )}
+                    className="text-gray-500 ml-auto"
+                  >
+                    {selectedSuggestions.size === suggestedKeywords.length ? "Deselect All" : "Select All"}
+                  </Button>
+                </div>
+              </>
+            )}
+
+            {/* Empty hint */}
+            {!suggestLoading && suggestedKeywords.length === 0 && (
+              <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-4">
+                Enter a niche above and click <strong>Suggest Keywords</strong> to get 10 AI-generated keyword ideas
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
     </Layout>
   );
 }
