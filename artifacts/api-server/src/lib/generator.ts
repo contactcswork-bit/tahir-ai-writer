@@ -567,7 +567,8 @@ async function publishToWordPress(
   aiResult: AIResult,
   featuredMediaId: number | null,
   slug: string,
-  wpStatus: "publish" | "draft"
+  wpStatus: "publish" | "draft",
+  keyword: string
 ): Promise<string> {
   const credentials = Buffer.from(`${site.username}:${site.applicationPassword}`).toString("base64");
   const siteUrl = site.url.replace(/\/$/, "");
@@ -604,8 +605,8 @@ async function publishToWordPress(
       _yoast_wpseo_metadesc: aiResult.metaDescription,
       yoast_wpseo_metadesc: aiResult.metaDescription,
       rank_math_description: aiResult.metaDescription,
-      _yoast_wpseo_focuskw: article.keyword,
-      rank_math_focus_keyword: article.keyword,
+      _yoast_wpseo_focuskw: keyword,
+      rank_math_focus_keyword: keyword,
     },
   };
 
@@ -639,7 +640,7 @@ async function publishToWordPress(
     site.applicationPassword,
     postId,
     aiResult.metaDescription,
-    article.keyword
+    keyword
   );
 
   return postLink;
@@ -716,7 +717,7 @@ async function generateArticle(articleId: number): Promise<void> {
         const dbStatus = publishNow ? "published" : "draft";
 
         // Step 4: Publish to WordPress (with Yoast meta PATCH)
-        const publishedUrl = await publishToWordPress(site, aiResult, featuredMediaId, slug, wpStatus);
+        const publishedUrl = await publishToWordPress(site, aiResult, featuredMediaId, slug, wpStatus, article.keyword);
 
         // Step 5: Mark complete
         await db.update(articlesTable).set({
