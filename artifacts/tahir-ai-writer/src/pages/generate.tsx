@@ -18,12 +18,26 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { apiFetch } from "@/lib/api";
 
-interface QueueItem {
+interface LogItem {
   id: number;
   keyword: string;
-  status: "queued" | "generating";
+  status: "queued" | "generating" | "published" | "draft" | "failed";
   siteName: string | null;
+  siteId: number | null;
+  publishedUrl: string | null;
+  errorMessage: string | null;
   createdAt: string;
+  publishedAt: string | null;
+}
+
+function timeAgo(dateStr: string): string {
+  const secs = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
+  if (secs < 60) return `${secs}s ago`;
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
 }
 
 export default function Generate() {
@@ -36,7 +50,10 @@ export default function Generate() {
   const [scheduledAt, setScheduledAt] = useState("");
   const [selectedSites, setSelectedSites] = useState<number[]>([]);
   const [publishNow, setPublishNow] = useState(false);
-  const [queueItems, setQueueItems] = useState<QueueItem[]>([]);
+  const [logItems, setLogItems] = useState<LogItem[]>([]);
+  const [retryingIds, setRetryingIds] = useState<Set<number>>(new Set());
+  const [expandedErrors, setExpandedErrors] = useState<Set<number>>(new Set());
+  const [retryAllLoading, setRetryAllLoading] = useState(false);
   // Bulk per-site mode
   const [bulkMode, setBulkMode] = useState(false);
   const [siteKeywords, setSiteKeywords] = useState<Record<number, string>>({});
@@ -62,12 +79,12 @@ export default function Generate() {
   const { data: status, refetch: refetchStatus } = useGetGenerateStatus();
   const { toast } = useToast();
 
-  const fetchQueue = useCallback(async () => {
+  const fetchLogs = useCallback(async () => {
     try {
-      const res = await apiFetch("/generate/queue");
+      const res = await apiFetch("/generate/logs");
       if (res.ok) {
         const data = await res.json();
-        setQueueItems(data.items || []);
+        setLogItems(data.items || []);
       }
     } catch {
       // Non-critical
@@ -75,13 +92,13 @@ export default function Generate() {
   }, []);
 
   useEffect(() => {
-    fetchQueue();
+    fetchLogs();
     const interval = setInterval(() => {
       refetchStatus();
-      fetchQueue();
+      fetchLogs();
     }, 3000);
     return () => clearInterval(interval);
-  }, [refetchStatus, fetchQueue]);
+  }, [refetchStatus, fetchLogs]);
 
   const keywordList = keywords.split("\n").map(k => k.trim()).filter(k => k);
 
@@ -301,9 +318,39 @@ export default function Generate() {
     }
   };
 
-  const pendingCount = queueItems.filter(i => i.status === "queued").length;
-  const processingCount = queueItems.filter(i => i.status === "generating").length;
+  const pendingCount = logItems.filter(i => i.status === "queued").length;
+  const processingCount = logItems.filter(i => i.status === "generating").length;
+  const failedCount = logItems.filter(i => i.status === "failed").length;
+  const publishedCount = logItems.filter(i => i.status === "published").length;
+  const draftCount = logItems.filter(i => i.status === "draft").length;
   const imageEnabled = imageSource !== "none";
+
+  const handleRetry = async (id: number) => {
+    setRetryingIds(prev => new Set([...prev, id]));
+    try {
+      const res = await apiFetch(`/generate/retry/${id}`, { method: "POST" });
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error || "Retry failed"); }
+      await fetchLogs();
+      toast({ title: "Article re-queued", description: "It will be picked up by the generator shortly." });
+    } catch (e: unknown) { toast(toastError(e)); }
+    finally { setRetryingIds(prev => { const n = new Set(prev); n.delete(id); return n; }); }
+  };
+
+  const handleRetryAllFailed = async () => {
+    setRetryAllLoading(true);
+    try {
+      const res = await apiFetch("/generate/retry-all-failed", { method: "POST" });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "Retry failed");
+      await fetchLogs();
+      toast({ title: `${d.retried} article${d.retried !== 1 ? "s" : ""} re-queued`, description: "All failed articles are being retried." });
+    } catch (e: unknown) { toast(toastError(e)); }
+    finally { setRetryAllLoading(false); }
+  };
+
+  const toggleError = (id: number) => {
+    setExpandedErrors(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  };
 
   return (
     <Layout>
@@ -826,45 +873,153 @@ export default function Generate() {
             </CardContent>
           </Card>
 
-          {/* Queue panel */}
-          {queueItems.length > 0 && (
+          {/* Generation Log panel */}
+          {logItems.length > 0 && (
             <Card className="shadow-sm">
-              <CardHeader className="pb-2 border-b border-gray-100 dark:border-zinc-800">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm">Queue</CardTitle>
-                  <div className="flex items-center gap-2 text-xs text-gray-500">
-                    {processingCount > 0 && (
-                      <span className="flex items-center gap-1 text-blue-600 dark:text-blue-400 font-medium">
-                        <Loader2 className="w-3 h-3 animate-spin" />
-                        {processingCount}
-                      </span>
-                    )}
-                    {pendingCount > 0 && (
-                      <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400 font-medium">
-                        <Clock className="w-3 h-3" />
-                        {pendingCount}
-                      </span>
-                    )}
+              <CardHeader className="pb-2.5 border-b border-gray-100 dark:border-zinc-800">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <CardTitle className="text-sm flex items-center gap-1.5">
+                      <FileText className="w-3.5 h-3.5 text-primary" />
+                      Generation Log
+                    </CardTitle>
+                    {/* Status pill bar */}
+                    <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                      {processingCount > 0 && (
+                        <span className="flex items-center gap-1 text-[10px] font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 px-1.5 py-0.5 rounded-full">
+                          <Loader2 className="w-2.5 h-2.5 animate-spin" />{processingCount} generating
+                        </span>
+                      )}
+                      {pendingCount > 0 && (
+                        <span className="flex items-center gap-1 text-[10px] font-medium text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded-full">
+                          <Clock className="w-2.5 h-2.5" />{pendingCount} queued
+                        </span>
+                      )}
+                      {publishedCount > 0 && (
+                        <span className="flex items-center gap-1 text-[10px] font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded-full">
+                          <Check className="w-2.5 h-2.5" />{publishedCount} published
+                        </span>
+                      )}
+                      {draftCount > 0 && (
+                        <span className="flex items-center gap-1 text-[10px] font-medium text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded-full">
+                          <FileText className="w-2.5 h-2.5" />{draftCount} draft
+                        </span>
+                      )}
+                      {failedCount > 0 && (
+                        <span className="flex items-center gap-1 text-[10px] font-medium text-red-500 dark:text-red-400 bg-red-50 dark:bg-red-950/40 px-1.5 py-0.5 rounded-full">
+                          <AlertCircle className="w-2.5 h-2.5" />{failedCount} failed
+                        </span>
+                      )}
+                    </div>
                   </div>
+                  {/* Retry all failed */}
+                  {failedCount > 0 && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-[11px] h-7 px-2 border-red-200 text-red-500 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950/40 shrink-0"
+                      onClick={handleRetryAllFailed}
+                      disabled={retryAllLoading}
+                    >
+                      {retryAllLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <><Zap className="w-3 h-3 mr-1" />Retry all</>}
+                    </Button>
+                  )}
                 </div>
               </CardHeader>
               <CardContent className="p-0">
-                <div className="divide-y divide-gray-100 dark:divide-zinc-800 max-h-60 overflow-y-auto">
-                  {queueItems.map(item => (
-                    <div key={item.id} className="flex items-center gap-2.5 px-3 py-2.5">
-                      {item.status === "generating" ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-500 shrink-0" />
-                      ) : (
-                        <Clock className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium truncate">{item.keyword}</p>
-                        {item.siteName && (
-                          <p className="text-[10px] text-gray-400 truncate">{item.siteName}</p>
-                        )}
+                <div className="divide-y divide-gray-100 dark:divide-zinc-800 max-h-[420px] overflow-y-auto">
+                  {logItems.map(item => {
+                    const isActive = item.status === "queued" || item.status === "generating";
+                    const isFailed = item.status === "failed";
+                    const isPublished = item.status === "published";
+                    const isDraft = item.status === "draft";
+                    const isRetrying = retryingIds.has(item.id);
+                    const errExpanded = expandedErrors.has(item.id);
+                    return (
+                      <div
+                        key={item.id}
+                        className={`px-3 py-2.5 transition-colors ${isActive ? "bg-blue-50/40 dark:bg-blue-950/10" : isFailed ? "bg-red-50/30 dark:bg-red-950/10" : ""}`}
+                      >
+                        <div className="flex items-start gap-2.5">
+                          {/* Status icon */}
+                          <div className="mt-0.5 shrink-0">
+                            {item.status === "generating" && <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-500" />}
+                            {item.status === "queued" && <Clock className="w-3.5 h-3.5 text-amber-500" />}
+                            {isPublished && <BadgeCheck className="w-3.5 h-3.5 text-emerald-500" />}
+                            {isDraft && <FileText className="w-3.5 h-3.5 text-gray-400" />}
+                            {isFailed && <AlertCircle className="w-3.5 h-3.5 text-red-500" />}
+                          </div>
+
+                          {/* Content */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <p className="text-xs font-medium truncate flex-1">{item.keyword}</p>
+                              {/* Published link */}
+                              {isPublished && item.publishedUrl && (
+                                <a
+                                  href={item.publishedUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-emerald-500 hover:text-emerald-700 shrink-0"
+                                  title="View article"
+                                >
+                                  <Globe className="w-3 h-3" />
+                                </a>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              {item.siteName && <p className="text-[10px] text-gray-400 truncate max-w-[90px]">{item.siteName}</p>}
+                              <p className="text-[10px] text-gray-300 dark:text-gray-600">{timeAgo(item.createdAt)}</p>
+                            </div>
+                            {/* Failed error row */}
+                            {isFailed && item.errorMessage && (
+                              <div className="mt-1">
+                                <button
+                                  className="text-[10px] text-red-400 hover:text-red-600 flex items-center gap-0.5"
+                                  onClick={() => toggleError(item.id)}
+                                >
+                                  <AlertCircle className="w-2.5 h-2.5" />
+                                  {errExpanded ? "Hide error" : "Show error"}
+                                </button>
+                                {errExpanded && (
+                                  <p className="mt-1 text-[10px] text-red-500 bg-red-50 dark:bg-red-950/30 border border-red-100 dark:border-red-900/40 rounded px-2 py-1 break-words">
+                                    {item.errorMessage}
+                                  </p>
+                                )}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Right actions */}
+                          <div className="shrink-0 flex items-center gap-1 mt-0.5">
+                            {/* Status badge */}
+                            <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full uppercase tracking-wide ${
+                              item.status === "generating" ? "bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-400" :
+                              item.status === "queued" ? "bg-amber-100 text-amber-600 dark:bg-amber-900/40 dark:text-amber-400" :
+                              isPublished ? "bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-400" :
+                              isDraft ? "bg-gray-100 text-gray-500 dark:bg-zinc-800 dark:text-gray-400" :
+                              "bg-red-100 text-red-500 dark:bg-red-900/30 dark:text-red-400"
+                            }`}>
+                              {item.status}
+                            </span>
+                            {/* Retry button for failed */}
+                            {isFailed && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-6 w-6 p-0 text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40"
+                                onClick={() => handleRetry(item.id)}
+                                disabled={isRetrying}
+                                title="Retry this article"
+                              >
+                                {isRetrying ? <Loader2 className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
+                              </Button>
+                            )}
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </CardContent>
             </Card>
