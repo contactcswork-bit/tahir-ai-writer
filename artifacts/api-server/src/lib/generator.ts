@@ -441,15 +441,27 @@ async function callAI(keyword: string, language: string, wordCount: number, sett
   // Use generous tokens — no credit limits, prioritize quality
   const targetTokens = Math.max(Math.round(wordCount * 3.5), 8000);
 
-  // Pick a random title style so articles don't all follow the same pattern
-  const titleStyles = [
-    `A natural, compelling title that includes "${keyword}" — lead with a curiosity hook or strong benefit. No year.`,
-    `A question-style title that includes "${keyword}" — something a real person would search. No year.`,
-    `A "how-to" or instructional title that includes "${keyword}" — clear, direct, action-oriented. No year.`,
-    `A list-style title that includes "${keyword}" — e.g., "7 Ways to..." or "5 Things About...". No year.`,
-    `A contrarian or surprising title that includes "${keyword}" — challenges common assumptions. No year.`,
+  // Each title style is a concrete FORMAT STRING — not a vague description
+  // The format must be diverse so batches of articles look nothing alike
+  const titleStylePool = [
+    // Curiosity gap
+    `Write a curiosity-gap title. Format: "The [keyword] Secret Most [type of person] Never Learn" or "What Nobody Tells You About [keyword]" — keep it under 70 chars, include "${keyword}" naturally.`,
+    // Mistake/warning angle
+    `Write a mistake-warning title. Format: "The [keyword] Mistake That Costs [people/businesses] [consequence]" or "Stop Making This [keyword] Mistake" — under 70 chars, include "${keyword}".`,
+    // Direct contrarian
+    `Write a contrarian title that challenges the mainstream view. Format: "Why [common belief about keyword] Is Wrong" or "The Case Against [popular keyword approach]" — under 70 chars, include "${keyword}".`,
+    // Specific how-to with outcome
+    `Write a specific how-to title with a clear outcome. Format: "How to [achieve specific result] With [keyword]" or "How to [keyword] Without [common pain point]" — under 70 chars, include "${keyword}".`,
+    // Honest/real-talk
+    `Write an honest, no-hype title. Format: "[keyword]: What Actually Works (And What Doesn't)" or "An Honest Look at [keyword]" or "The Truth About [keyword]" — under 70 chars, include "${keyword}".`,
+    // Question (real search intent)
+    `Write a title as a genuine search question someone would type. Format: "Does [keyword] Really Work?" or "Is [keyword] Worth It?" or "Can [keyword] Actually [achieve result]?" — under 70 chars, include "${keyword}".`,
+    // Specific numbered list (not generic)
+    `Write a numbered list title. Format: "[N] [keyword] Mistakes That Are Holding You Back" or "[N] Things Experts Know About [keyword] That Beginners Don't" — pick a specific number 5–12, under 70 chars, include "${keyword}".`,
+    // Time/effort promise
+    `Write a result-promise title. Format: "How to [keyword] in [short timeframe]" or "Get Better at [keyword] Starting Today" or "[keyword]: Results You Can See Quickly" — under 70 chars, include "${keyword}".`,
   ];
-  const titleStyle = titleStyles[Math.floor(Math.random() * titleStyles.length)];
+  const titleStyle = titleStylePool[Math.floor(Math.random() * titleStylePool.length)];
 
   // Pick a random content angle so articles don't share the same opening style
   const contentAngles = [
@@ -469,7 +481,14 @@ Respond with ONLY a valid JSON object — no text before or after, no markdown f
 
 === TITLE ===
 ${titleStyle}
-The title MUST include the exact phrase "${keyword}" verbatim. Keep it under 70 characters. No clichés like "dive into", "unleash", "in today's world".
+
+TITLE RULES:
+- Must include the exact phrase "${keyword}" somewhere natural in the title
+- Under 70 characters
+- BANNED words/phrases — never use these: "Ultimate Guide", "Complete Guide", "Everything You Need", "Best Practices", "Proven Strategies", "Expert Tips", "In Today's World", "Unleash", "Dive Into", "Game-Changer", "Comprehensive", "In-Depth"
+- Do NOT start with "Best [keyword]..." — that pattern is overused and generic
+- Do NOT write "[Keyword]: [Generic Suffix]" colon-separator format unless it's genuinely interesting
+- The title should feel like it was written by a real blogger, not an SEO tool
 
 === META DESCRIPTION ===
 Under 155 characters. Include "${keyword}" naturally. Compelling, specific, tells the reader exactly what they'll get.
@@ -565,17 +584,21 @@ Return ONLY the JSON object, nothing else.`;
   // Safety net: guarantee the EXACT keyword appears verbatim in the title
   const originalTitle = parsed.title;
   if (!parsed.title.toLowerCase().includes(keyword.toLowerCase())) {
-    const powerSuffixes = [
-      "Complete Guide to Know",
-      "Expert Tips and Proven Strategies",
-      "Best Practices and Essential Tips",
-      "Ultimate Guide for Best Results",
-      "Top Strategies That Actually Work",
+    const kw = keyword.charAt(0).toUpperCase() + keyword.slice(1);
+    // Natural, varied fallback patterns — nothing generic
+    const naturalFallbacks = [
+      `What Nobody Tells You About ${kw}`,
+      `The Truth About ${kw} (Without the Hype)`,
+      `Is ${kw} Actually Worth It? An Honest Look`,
+      `Why Most People Get ${kw} Wrong`,
+      `${kw}: What Actually Works and What Doesn't`,
+      `Stop Overthinking ${kw} — Here's What Matters`,
+      `How to Get the Most From ${kw}`,
+      `The ${kw} Mistakes You Don't Know You're Making`,
+      `${kw} Explained: No Fluff, Just What Works`,
     ];
-    const suffix = powerSuffixes[Math.floor(Math.random() * powerSuffixes.length)];
-    const keywordTitleCase = keyword.charAt(0).toUpperCase() + keyword.slice(1);
-    parsed.title = `${keywordTitleCase}: ${suffix}`;
-    logger.info({ original: originalTitle, forced: parsed.title, keyword }, "AI omitted exact keyword from title — forced keyword into title");
+    parsed.title = naturalFallbacks[Math.floor(Math.random() * naturalFallbacks.length)];
+    logger.info({ original: originalTitle, forced: parsed.title, keyword }, "AI omitted exact keyword — applied natural fallback title");
   }
 
   if (parsed.metaDescription.length > 155) {
