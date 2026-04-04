@@ -27,7 +27,7 @@ interface QueueItem {
 export default function Generate() {
   const [keywords, setKeywords] = useState("");
   const [language, setLanguage] = useState("English");
-  const [wordCount, setWordCount] = useState("1500");
+  const [wordCount, setWordCount] = useState("800");
   const [imageSource, setImageSource] = useState<"pollinations" | "url" | "none">("pollinations");
   const [imageUrl, setImageUrl] = useState("");
   const [scheduleEnabled, setScheduleEnabled] = useState(false);
