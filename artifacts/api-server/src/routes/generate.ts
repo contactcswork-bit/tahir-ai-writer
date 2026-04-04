@@ -85,12 +85,14 @@ router.get("/generate/queue", requireAuth, async (req, res): Promise<void> => {
 
 // Keyword suggestion using LongCat AI
 router.post("/generate/suggest-keywords", requireAuth, async (req, res): Promise<void> => {
-  const { niche } = req.body as { niche?: string };
+  const { niche, language } = req.body as { niche?: string; language?: string };
 
   if (!niche || !niche.trim()) {
     res.status(400).json({ error: "Please provide a niche." });
     return;
   }
+
+  const lang = language?.trim() || "English";
 
   try {
     const [appSettings] = await db.select().from(appSettingsTable).limit(1);
@@ -100,13 +102,14 @@ router.post("/generate/suggest-keywords", requireAuth, async (req, res): Promise
     const prompt = `You are an SEO keyword research expert. Generate exactly 10 high-value, search-ready long-tail keywords for the niche: "${niche.trim()}".
 
 Rules:
+- Write ALL keywords in ${lang} language ONLY — every word must be in ${lang}
 - Each keyword must be 3-7 words long
 - Focus on buyer-intent and informational keywords that rank well
-- Mix some "best X", "how to X", "X for beginners", "X tips" style keywords
-- Make them specific and realistic search queries real people type
+- Mix some "best X", "how to X", "X for beginners", "X tips" style keywords (translated to ${lang})
+- Make them specific and realistic search queries real people type in ${lang}
 - No duplicate topics
 
-Return ONLY a valid JSON array of exactly 10 strings. No explanation, no markdown, no extra text.
+Return ONLY a valid JSON array of exactly 10 strings in ${lang}. No explanation, no markdown, no extra text.
 Example format: ["keyword one here", "another keyword phrase", ...]`;
 
     const response = await fetch("https://api.longcat.chat/openai/v1/chat/completions", {
