@@ -12,8 +12,10 @@ import { useToast } from "@/hooks/use-toast";
 import { toastError } from "@/lib/errors";
 import {
   PenLine, Zap, List, Sparkles, Calendar, FileText,
-  Loader2, Pin, Globe, Clock, Send, Lightbulb, Copy, Check, PlusCircle, LayoutGrid
+  Loader2, Pin, Globe, Clock, Send, Lightbulb, Copy, Check, PlusCircle, LayoutGrid,
+  ScanSearch, Filter, X, BadgeCheck, AlertCircle
 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { apiFetch } from "@/lib/api";
 
 interface QueueItem {
@@ -38,6 +40,16 @@ export default function Generate() {
   // Bulk per-site mode
   const [bulkMode, setBulkMode] = useState(false);
   const [siteKeywords, setSiteKeywords] = useState<Record<number, string>>({});
+  // Smart keyword filter
+  const [autoFilter, setAutoFilter] = useState(false);
+  const [filterLoading, setFilterLoading] = useState(false);
+  const [masterKeywords, setMasterKeywords] = useState("");
+  const [filterSummary, setFilterSummary] = useState<{
+    totalChecked: number;
+    totalRemoved: number;
+    sitesChecked: number;
+    perSite: { siteId: number; siteName: string; removed: number; kept: number }[];
+  } | null>(null);
   // Keyword suggestions
   const [niche, setNiche] = useState("");
   const [suggestLoading, setSuggestLoading] = useState(false);
@@ -228,6 +240,67 @@ export default function Generate() {
     setTimeout(() => setCopiedIdx(null), 1500);
   };
 
+  const handleScanFilter = async () => {
+    const source = bulkMode ? masterKeywords : keywords;
+    const kwList = source.split("\n").map(k => k.trim()).filter(Boolean);
+    if (!kwList.length) {
+      toast({ title: "No keywords", description: "Add keywords to the box first before scanning.", variant: "destructive" });
+      return;
+    }
+    if (!selectedSites.length) {
+      toast({ title: "No sites selected", description: "Select at least one site to scan.", variant: "destructive" });
+      return;
+    }
+    setFilterLoading(true);
+    setFilterSummary(null);
+    try {
+      const res = await apiFetch("/generate/check-keywords", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ keywords: kwList, siteIds: selectedSites }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Scan failed");
+      const results: { siteId: number; siteName: string; existing: string[]; missing: string[] }[] = data.results;
+
+      let totalRemoved = 0;
+      const perSite: { siteId: number; siteName: string; removed: number; kept: number }[] = [];
+
+      if (bulkMode) {
+        // Per-site mode: fill each site's keyword box with only its missing keywords
+        const updates: Record<number, string> = {};
+        for (const r of results) {
+          updates[r.siteId] = r.missing.join("\n");
+          totalRemoved += r.existing.length;
+          perSite.push({ siteId: r.siteId, siteName: r.siteName, removed: r.existing.length, kept: r.missing.length });
+        }
+        setSiteKeywords(prev => ({ ...prev, ...updates }));
+      } else {
+        // Normal mode: remove keywords that exist on ANY selected site
+        const existingOnAny = new Set<string>();
+        for (const r of results) {
+          r.existing.forEach(kw => existingOnAny.add(kw));
+          perSite.push({ siteId: r.siteId, siteName: r.siteName, removed: r.existing.length, kept: r.missing.length });
+        }
+        const filtered = kwList.filter(kw => !existingOnAny.has(kw));
+        totalRemoved = kwList.length - filtered.length;
+        setKeywords(filtered.join("\n"));
+      }
+
+      setFilterSummary({ totalChecked: kwList.length, totalRemoved, sitesChecked: results.length, perSite });
+      toast({
+        title: totalRemoved > 0 ? `${totalRemoved} duplicate${totalRemoved !== 1 ? "s" : ""} removed` : "All keywords are new!",
+        description: totalRemoved > 0
+          ? `${kwList.length - totalRemoved} unique keyword${(kwList.length - totalRemoved) !== 1 ? "s" : ""} kept across ${results.length} site${results.length !== 1 ? "s" : ""}`
+          : "None of your keywords exist on the selected sites.",
+      });
+    } catch (e: unknown) {
+      toast(toastError(e));
+    } finally {
+      setFilterLoading(false);
+    }
+  };
+
   const pendingCount = queueItems.filter(i => i.status === "queued").length;
   const processingCount = queueItems.filter(i => i.status === "generating").length;
   const imageEnabled = imageSource !== "none";
@@ -258,18 +331,34 @@ export default function Generate() {
                     Configure your content generation
                   </p>
                 </div>
-                {/* Per-Site Keywords toggle */}
-                <div className="flex items-center gap-2.5 shrink-0 mt-0.5">
-                  <div className="text-right">
-                    <p className="text-sm font-medium flex items-center gap-1.5 justify-end">
-                      <LayoutGrid className="w-3.5 h-3.5 text-primary" />
-                      Per-Site Mode
-                    </p>
-                    <p className="text-xs text-gray-400 mt-0.5">
-                      {bulkMode ? "Each site gets its own keywords" : "Shared keywords for all sites"}
-                    </p>
+                {/* Toggles */}
+                <div className="flex flex-col gap-2.5 shrink-0">
+                  {/* Per-Site Mode */}
+                  <div className="flex items-center gap-2.5">
+                    <div className="text-right">
+                      <p className="text-sm font-medium flex items-center gap-1.5 justify-end">
+                        <LayoutGrid className="w-3.5 h-3.5 text-primary" />
+                        Per-Site Mode
+                      </p>
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        {bulkMode ? "Each site gets its own keywords" : "Shared keywords for all sites"}
+                      </p>
+                    </div>
+                    <Switch checked={bulkMode} onCheckedChange={setBulkMode} />
                   </div>
-                  <Switch checked={bulkMode} onCheckedChange={setBulkMode} />
+                  {/* Smart Filter toggle */}
+                  <div className="flex items-center gap-2.5">
+                    <div className="text-right">
+                      <p className="text-sm font-medium flex items-center gap-1.5 justify-end">
+                        <ScanSearch className="w-3.5 h-3.5 text-emerald-500" />
+                        Smart Filter
+                      </p>
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        {autoFilter ? "Scans & removes duplicates" : "Filter existing keywords"}
+                      </p>
+                    </div>
+                    <Switch checked={autoFilter} onCheckedChange={(v) => { setAutoFilter(v); setFilterSummary(null); }} />
+                  </div>
                 </div>
               </div>
             </CardHeader>
@@ -286,13 +375,72 @@ export default function Generate() {
                   <Textarea
                     rows={5}
                     value={keywords}
-                    onChange={(e) => setKeywords(e.target.value)}
+                    onChange={(e) => { setKeywords(e.target.value); setFilterSummary(null); }}
                     placeholder={"best laptops 2026\nhealthy breakfast recipes\ndigital marketing tips\nhome workout routine"}
                     className="font-mono text-sm resize-y bg-white dark:bg-zinc-950"
                   />
                   <p className="text-xs text-gray-400">
                     Enter one keyword per line • Each keyword will generate unique articles for all selected sites
                   </p>
+
+                  {/* Smart Filter panel — normal mode */}
+                  {autoFilter && (
+                    <div className="mt-1 rounded-xl border border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/50 dark:bg-emerald-950/20 p-4 space-y-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2">
+                          <ScanSearch className="w-4 h-4 text-emerald-600" />
+                          <span className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">Smart Filter Active</span>
+                          <span className="text-xs text-emerald-600/70 dark:text-emerald-500/70">— scans selected sites and removes duplicate keywords</span>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="border-emerald-300 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-700 dark:text-emerald-400 dark:hover:bg-emerald-900/40 shrink-0"
+                          onClick={handleScanFilter}
+                          disabled={filterLoading || !selectedSites.length || !keywords.trim()}
+                        >
+                          {filterLoading ? <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />Scanning…</> : <><ScanSearch className="w-3.5 h-3.5 mr-1.5" />Scan & Filter</>}
+                        </Button>
+                      </div>
+                      {!selectedSites.length && (
+                        <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+                          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                          Select at least one site below to enable scanning
+                        </p>
+                      )}
+                      {filterSummary && !bulkMode && (
+                        <div className="space-y-2">
+                          <div className="flex flex-wrap gap-2">
+                            <Badge variant="secondary" className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 gap-1">
+                              <BadgeCheck className="w-3 h-3" />
+                              {filterSummary.totalChecked - filterSummary.totalRemoved} unique kept
+                            </Badge>
+                            {filterSummary.totalRemoved > 0 && (
+                              <Badge variant="secondary" className="bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400 gap-1">
+                                <X className="w-3 h-3" />
+                                {filterSummary.totalRemoved} removed
+                              </Badge>
+                            )}
+                            <Badge variant="secondary" className="bg-gray-100 text-gray-600 dark:bg-zinc-800 dark:text-gray-400 gap-1">
+                              <Globe className="w-3 h-3" />
+                              {filterSummary.sitesChecked} site{filterSummary.sitesChecked !== 1 ? "s" : ""} scanned
+                            </Badge>
+                          </div>
+                          {filterSummary.perSite.length > 1 && (
+                            <div className="text-xs text-gray-500 space-y-0.5">
+                              {filterSummary.perSite.map(s => (
+                                <div key={s.siteId} className="flex items-center gap-2">
+                                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-500/60" />
+                                  <span className="font-medium truncate max-w-[160px]">{s.siteName}</span>
+                                  <span>— {s.removed > 0 ? `${s.removed} removed` : "no duplicates"}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -301,6 +449,76 @@ export default function Generate() {
                     Keywords per Site
                     <span className="font-normal text-gray-400">(one keyword per line, per site)</span>
                   </Label>
+
+                  {/* Smart Filter — per-site master keywords */}
+                  {autoFilter && (
+                    <div className="rounded-xl border border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/50 dark:bg-emerald-950/20 p-4 space-y-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <ScanSearch className="w-4 h-4 text-emerald-600" />
+                        <span className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">Smart Filter — Master Keywords</span>
+                      </div>
+                      <p className="text-xs text-emerald-700/70 dark:text-emerald-400/70">
+                        Paste your full keyword list here. After scanning, each site's box will be auto-filled with only the keywords that don't already exist on that site.
+                      </p>
+                      <Textarea
+                        rows={4}
+                        value={masterKeywords}
+                        onChange={(e) => { setMasterKeywords(e.target.value); setFilterSummary(null); }}
+                        placeholder={"best laptops 2026\nhealthy breakfast recipes\ndigital marketing tips\nhome workout routine"}
+                        className="font-mono text-sm resize-y bg-white dark:bg-zinc-950 border-emerald-200 dark:border-emerald-800 focus-visible:ring-emerald-400"
+                      />
+                      <div className="flex items-center justify-between gap-3 flex-wrap">
+                        <div className="flex flex-wrap gap-2">
+                          {filterSummary && bulkMode && (
+                            <>
+                              <Badge variant="secondary" className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 gap-1">
+                                <BadgeCheck className="w-3 h-3" />
+                                {filterSummary.totalChecked - filterSummary.totalRemoved} total unique
+                              </Badge>
+                              {filterSummary.totalRemoved > 0 && (
+                                <Badge variant="secondary" className="bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400 gap-1">
+                                  <X className="w-3 h-3" />
+                                  {filterSummary.totalRemoved} duplicates removed
+                                </Badge>
+                              )}
+                            </>
+                          )}
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="border-emerald-300 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-700 dark:text-emerald-400 dark:hover:bg-emerald-900/40 shrink-0"
+                          onClick={handleScanFilter}
+                          disabled={filterLoading || !selectedSites.length || !masterKeywords.trim()}
+                        >
+                          {filterLoading
+                            ? <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />Scanning sites…</>
+                            : <><ScanSearch className="w-3.5 h-3.5 mr-1.5" />Scan & Distribute</>}
+                        </Button>
+                      </div>
+                      {filterSummary && bulkMode && filterSummary.perSite.length > 0 && (
+                        <div className="text-xs text-gray-500 border-t border-emerald-100 dark:border-emerald-900/40 pt-2 space-y-0.5">
+                          <p className="font-medium text-gray-600 dark:text-gray-400 mb-1">Per-site results:</p>
+                          {filterSummary.perSite.map(s => (
+                            <div key={s.siteId} className="flex items-center gap-2">
+                              <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${s.kept > 0 ? "bg-emerald-500" : "bg-gray-300"}`} />
+                              <span className="font-medium truncate max-w-[150px]">{s.siteName}</span>
+                              <span className="text-gray-400">—</span>
+                              <span className="text-emerald-600 dark:text-emerald-400">{s.kept} new</span>
+                              {s.removed > 0 && <span className="text-red-400">{s.removed} skipped</span>}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {!selectedSites.length && (
+                        <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+                          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                          Select sites below first to enable scanning
+                        </p>
+                      )}
+                    </div>
+                  )}
+
                   {selectedSites.length === 0 ? (
                     <div className="py-8 text-center text-gray-400 text-sm border border-dashed rounded-lg">
                       <LayoutGrid className="w-8 h-8 mx-auto mb-2 opacity-30" />
