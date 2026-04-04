@@ -155,6 +155,132 @@ async function fetchImageWithRetry(
   }
 }
 
+// ── Yoast / RankMath meta update helpers ─────────────────────────────────────
+
+function escapeXml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+async function updateMetaViaXmlRpc(
+  siteUrl: string,
+  username: string,
+  password: string,
+  postId: number,
+  metaDescription?: string,
+  keyword?: string
+): Promise<{ success: boolean; reason?: string }> {
+  const xmlRpcUrl = `${siteUrl}/xmlrpc.php`;
+  const customFields: Array<{ key: string; value: string }> = [];
+
+  if (metaDescription) {
+    customFields.push({ key: "_yoast_wpseo_metadesc", value: metaDescription });
+    customFields.push({ key: "rank_math_description", value: metaDescription });
+  }
+  if (keyword) {
+    customFields.push({ key: "_yoast_wpseo_focuskw", value: keyword });
+    customFields.push({ key: "rank_math_focus_keyword", value: keyword });
+  }
+  if (customFields.length === 0) return { success: true, reason: "No meta to update" };
+
+  const customFieldsXml = customFields
+    .map(
+      (cf) => `<struct>
+        <member><name>key</name><value><string>${escapeXml(cf.key)}</string></value></member>
+        <member><name>value</name><value><string>${escapeXml(cf.value)}</string></value></member>
+      </struct>`
+    )
+    .join("");
+
+  const xmlPayload = `<?xml version="1.0" encoding="UTF-8"?>
+<methodCall>
+  <methodName>wp.editPost</methodName>
+  <params>
+    <param><value><int>1</int></value></param>
+    <param><value><string>${escapeXml(username)}</string></value></param>
+    <param><value><string>${escapeXml(password)}</string></value></param>
+    <param><value><int>${postId}</int></value></param>
+    <param><value><struct>
+      <member>
+        <name>custom_fields</name>
+        <value><array><data>${customFieldsXml}</data></array></value>
+      </member>
+    </struct></value></param>
+  </params>
+</methodCall>`;
+
+  try {
+    const response = await fetch(xmlRpcUrl, {
+      method: "POST",
+      headers: { "Content-Type": "text/xml; charset=utf-8" },
+      body: xmlPayload,
+    });
+    const responseText = await response.text();
+    if (!response.ok) return { success: false, reason: `HTTP ${response.status}` };
+    if (responseText.includes("<fault>")) return { success: false, reason: "XML-RPC fault" };
+    return { success: true };
+  } catch (e) {
+    return { success: false, reason: String(e) };
+  }
+}
+
+async function updateYoastMeta(
+  siteUrl: string,
+  credentials: string,
+  username: string,
+  password: string,
+  postId: number,
+  metaDescription?: string,
+  keyword?: string
+): Promise<void> {
+  // Method 1: XML-RPC (most reliable for private meta keys)
+  const xmlRpcResult = await updateMetaViaXmlRpc(siteUrl, username, password, postId, metaDescription, keyword);
+  if (xmlRpcResult.success) {
+    logger.info({ postId, method: "XML-RPC" }, "Yoast meta updated via XML-RPC");
+  } else {
+    logger.warn({ postId, reason: xmlRpcResult.reason }, "XML-RPC meta update failed, trying REST");
+  }
+
+  // Method 2: REST API meta fields
+  try {
+    await fetch(`${siteUrl}/wp-json/wp/v2/posts/${postId}`, {
+      method: "POST",
+      headers: { Authorization: `Basic ${credentials}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        meta: {
+          _yoast_wpseo_metadesc: metaDescription || "",
+          _yoast_wpseo_focuskw: keyword || "",
+          yoast_wpseo_metadesc: metaDescription || "",
+          rank_math_description: metaDescription || "",
+          rank_math_focus_keyword: keyword || "",
+        },
+      }),
+    });
+  } catch (e) {
+    logger.warn({ e, postId }, "REST meta update failed (non-fatal)");
+  }
+
+  // Method 3: Yoast dedicated REST endpoint
+  try {
+    await fetch(`${siteUrl}/wp-json/yoast/v1/meta/posts/${postId}`, {
+      method: "PUT",
+      headers: { Authorization: `Basic ${credentials}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        wpseo_metadesc: metaDescription || "",
+        wpseo_focuskw: keyword || "",
+      }),
+    });
+  } catch (e) {
+    logger.warn({ e, postId }, "Yoast REST endpoint failed (non-fatal)");
+  }
+}
+
+// ── WordPress image upload ────────────────────────────────────────────────────
+
 async function uploadImageToWordPress(
   site: any,
   credentials: string,
@@ -478,6 +604,8 @@ async function publishToWordPress(
       _yoast_wpseo_metadesc: aiResult.metaDescription,
       yoast_wpseo_metadesc: aiResult.metaDescription,
       rank_math_description: aiResult.metaDescription,
+      _yoast_wpseo_focuskw: article.keyword,
+      rank_math_focus_keyword: article.keyword,
     },
   };
 
@@ -503,41 +631,16 @@ async function publishToWordPress(
   const postId: number = post.id;
   const postLink: string = post.link || `${siteUrl}/?p=${postId}`;
 
-  // Secondary update: send meta again via POST to the post endpoint
-  // Yoast reads _yoast_wpseo_metadesc (private key with underscore).
-  // WordPress allows setting private meta if Yoast registers it with show_in_rest:true.
-  try {
-    const updatePayload: any = {
-      meta: {
-        _yoast_wpseo_metadesc: aiResult.metaDescription,
-        yoast_wpseo_metadesc: aiResult.metaDescription,
-        rank_math_description: aiResult.metaDescription,
-      },
-    };
-    if (featuredMediaId) updatePayload.featured_media = featuredMediaId;
-
-    const updateRes = await fetch(`${siteUrl}/wp-json/wp/v2/posts/${postId}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Basic ${credentials}`,
-      },
-      body: JSON.stringify(updatePayload),
-    });
-    if (!updateRes.ok) {
-      const updateErr = await updateRes.text();
-      logger.warn({ updateErr, postId }, "Yoast meta secondary update failed (non-fatal)");
-    } else {
-      const updatedPost = await updateRes.json() as any;
-      logger.info({
-        postId,
-        metaReceived: updatedPost?.meta,
-        yoastMetaDesc: updatedPost?.meta?.yoast_wpseo_metadesc || updatedPost?.meta?._yoast_wpseo_metadesc,
-      }, "Yoast meta secondary update response");
-    }
-  } catch (err) {
-    logger.warn({ err }, "Yoast meta secondary update exception (non-fatal)");
-  }
+  // After post is created, update Yoast/RankMath meta via XML-RPC + REST fallbacks
+  await updateYoastMeta(
+    siteUrl,
+    credentials,
+    site.username,
+    site.applicationPassword,
+    postId,
+    aiResult.metaDescription,
+    article.keyword
+  );
 
   return postLink;
 }
