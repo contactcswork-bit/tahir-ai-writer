@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db, articlesTable, sitesTable, appSettingsTable } from "@workspace/db";
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and, inArray, desc } from "drizzle-orm";
 import { requireAuth } from "../lib/auth";
 import { GenerateArticlesBody } from "@workspace/api-zod";
 import { addToQueue, getQueueStatus } from "../lib/generator";
@@ -155,6 +155,66 @@ Example format: ["keyword one here", "another keyword phrase", ...]`;
   } catch (err: any) {
     res.status(500).json({ error: err?.message || "Failed to generate suggestions." });
   }
+});
+
+// Full generation log — all statuses, last 50 articles
+router.get("/generate/logs", requireAuth, async (req, res): Promise<void> => {
+  const user = (req as any).user;
+  const articles = await db
+    .select({
+      id: articlesTable.id,
+      keyword: articlesTable.keyword,
+      status: articlesTable.status,
+      siteId: articlesTable.siteId,
+      siteName: sitesTable.name,
+      publishedUrl: articlesTable.publishedUrl,
+      errorMessage: articlesTable.errorMessage,
+      createdAt: articlesTable.createdAt,
+      publishedAt: articlesTable.publishedAt,
+    })
+    .from(articlesTable)
+    .leftJoin(sitesTable, eq(articlesTable.siteId, sitesTable.id))
+    .where(eq(articlesTable.userId, user.id))
+    .orderBy(desc(articlesTable.createdAt))
+    .limit(50);
+  res.json({ items: articles });
+});
+
+// Retry a single failed article
+router.post("/generate/retry/:id", requireAuth, async (req, res): Promise<void> => {
+  const user = (req as any).user;
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid article ID" }); return; }
+
+  const [article] = await db
+    .select()
+    .from(articlesTable)
+    .where(and(eq(articlesTable.id, id), eq(articlesTable.userId, user.id)));
+
+  if (!article) { res.status(404).json({ error: "Article not found" }); return; }
+
+  await db.update(articlesTable)
+    .set({ status: "queued", errorMessage: null })
+    .where(eq(articlesTable.id, id));
+
+  addToQueue(id);
+  res.json({ success: true, id });
+});
+
+// Retry ALL failed articles for the current user
+router.post("/generate/retry-all-failed", requireAuth, async (req, res): Promise<void> => {
+  const user = (req as any).user;
+  const failed = await db
+    .select({ id: articlesTable.id })
+    .from(articlesTable)
+    .where(and(eq(articlesTable.userId, user.id), eq(articlesTable.status, "failed")));
+
+  for (const a of failed) {
+    await db.update(articlesTable).set({ status: "queued", errorMessage: null }).where(eq(articlesTable.id, a.id));
+    addToQueue(a.id);
+  }
+
+  res.json({ success: true, retried: failed.length });
 });
 
 // Smart keyword duplicate checker — scans WP sites for existing articles
