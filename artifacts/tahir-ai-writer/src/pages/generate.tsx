@@ -51,6 +51,7 @@ export default function Generate() {
   const [selectedSites, setSelectedSites] = useState<number[]>([]);
   const [publishNow, setPublishNow] = useState(false);
   const [logItems, setLogItems] = useState<LogItem[]>([]);
+  const [sessionIds, setSessionIds] = useState<number[] | null>(null);
   const [retryingIds, setRetryingIds] = useState<Set<number>>(new Set());
   const [expandedErrors, setExpandedErrors] = useState<Set<number>>(new Set());
   const [retryAllLoading, setRetryAllLoading] = useState(false);
@@ -100,6 +101,18 @@ export default function Generate() {
     return () => clearInterval(interval);
   }, [refetchStatus, fetchLogs]);
 
+  // Auto-hide log when every article in the current session is finished
+  useEffect(() => {
+    if (!sessionIds || sessionIds.length === 0) return;
+    const sessionItems = logItems.filter(i => sessionIds.includes(i.id));
+    if (sessionItems.length === 0) return; // Not loaded yet
+    const allDone = sessionItems.every(i => i.status !== "queued" && i.status !== "generating");
+    if (allDone) {
+      const timer = setTimeout(() => setSessionIds(null), 2500);
+      return () => clearTimeout(timer);
+    }
+  }, [logItems, sessionIds]);
+
   const keywordList = keywords.split("\n").map(k => k.trim()).filter(k => k);
 
   const handleSelectAll = () => {
@@ -145,9 +158,10 @@ export default function Generate() {
       }, 0);
 
       try {
+        const allJobIds: number[] = [];
         for (const site of sitesToGenerate) {
           const kwList = (siteKeywords[site.id] || "").split("\n").map((k: string) => k.trim()).filter(Boolean);
-          await generateMutation.mutateAsync({
+          const result: any = await generateMutation.mutateAsync({
             data: {
               keywords: kwList,
               siteIds: [site.id],
@@ -159,14 +173,16 @@ export default function Generate() {
               publishNow,
             }
           });
+          if (result?.jobIds) allJobIds.push(...result.jobIds);
         }
+        setSessionIds(allJobIds);
         toast({
           title: "Generation started!",
           description: `${totalArticles} article${totalArticles > 1 ? "s" : ""} queued across ${sitesToGenerate.length} site${sitesToGenerate.length > 1 ? "s" : ""}. They will be ${publishNow ? "published" : "saved as drafts"} when ready.`
         });
         setSiteKeywords({});
         refetchStatus();
-        setTimeout(fetchQueue, 1000);
+        setTimeout(fetchLogs, 800);
       } catch (e: unknown) {
         toast(toastError(e));
       }
@@ -184,7 +200,7 @@ export default function Generate() {
     }
 
     try {
-      await generateMutation.mutateAsync({
+      const result: any = await generateMutation.mutateAsync({
         data: {
           keywords: keywordList,
           siteIds: selectedSites,
@@ -197,6 +213,7 @@ export default function Generate() {
         }
       });
 
+      if (result?.jobIds) setSessionIds(result.jobIds);
       const totalArticles = keywordList.length * selectedSites.length;
       toast({
         title: "Generation started!",
@@ -204,7 +221,7 @@ export default function Generate() {
       });
       setKeywords("");
       refetchStatus();
-      setTimeout(fetchQueue, 1000);
+      setTimeout(fetchLogs, 800);
     } catch (e: unknown) {
       toast(toastError(e));
     }
@@ -320,9 +337,14 @@ export default function Generate() {
 
   const pendingCount = logItems.filter(i => i.status === "queued").length;
   const processingCount = logItems.filter(i => i.status === "generating").length;
-  const failedCount = logItems.filter(i => i.status === "failed").length;
-  const publishedCount = logItems.filter(i => i.status === "published").length;
-  const draftCount = logItems.filter(i => i.status === "draft").length;
+
+  // Session-scoped items (only current batch)
+  const sessionLogItems = sessionIds ? logItems.filter(i => sessionIds.includes(i.id)) : [];
+  const failedCount = sessionLogItems.filter(i => i.status === "failed").length;
+  const publishedCount = sessionLogItems.filter(i => i.status === "published").length;
+  const draftCount = sessionLogItems.filter(i => i.status === "draft").length;
+  const sessionPending = sessionLogItems.filter(i => i.status === "queued").length;
+  const sessionProcessing = sessionLogItems.filter(i => i.status === "generating").length;
   const imageEnabled = imageSource !== "none";
 
   const handleRetry = async (id: number) => {
@@ -873,8 +895,8 @@ export default function Generate() {
             </CardContent>
           </Card>
 
-          {/* Generation Log panel */}
-          {logItems.length > 0 && (
+          {/* Generation Log panel — only shows current batch */}
+          {sessionLogItems.length > 0 && (
             <Card className="shadow-sm">
               <CardHeader className="pb-2.5 border-b border-gray-100 dark:border-zinc-800">
                 <div className="flex items-center justify-between gap-2">
@@ -882,17 +904,18 @@ export default function Generate() {
                     <CardTitle className="text-sm flex items-center gap-1.5">
                       <FileText className="w-3.5 h-3.5 text-primary" />
                       Generation Log
+                      <span className="font-normal text-gray-400 text-xs">({sessionLogItems.length})</span>
                     </CardTitle>
                     {/* Status pill bar */}
                     <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
-                      {processingCount > 0 && (
+                      {sessionProcessing > 0 && (
                         <span className="flex items-center gap-1 text-[10px] font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 px-1.5 py-0.5 rounded-full">
-                          <Loader2 className="w-2.5 h-2.5 animate-spin" />{processingCount} generating
+                          <Loader2 className="w-2.5 h-2.5 animate-spin" />{sessionProcessing} generating
                         </span>
                       )}
-                      {pendingCount > 0 && (
+                      {sessionPending > 0 && (
                         <span className="flex items-center gap-1 text-[10px] font-medium text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded-full">
-                          <Clock className="w-2.5 h-2.5" />{pendingCount} queued
+                          <Clock className="w-2.5 h-2.5" />{sessionPending} queued
                         </span>
                       )}
                       {publishedCount > 0 && (
@@ -928,7 +951,7 @@ export default function Generate() {
               </CardHeader>
               <CardContent className="p-0">
                 <div className="divide-y divide-gray-100 dark:divide-zinc-800 max-h-[420px] overflow-y-auto">
-                  {logItems.map(item => {
+                  {sessionLogItems.map(item => {
                     const isActive = item.status === "queued" || item.status === "generating";
                     const isFailed = item.status === "failed";
                     const isPublished = item.status === "published";
