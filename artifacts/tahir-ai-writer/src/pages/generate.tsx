@@ -143,7 +143,7 @@ export default function Generate() {
       const res = await apiFetch("/generate/suggest-keywords", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ niche: niche.trim() }),
+        body: JSON.stringify({ niche: niche.trim(), language }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to get suggestions");
