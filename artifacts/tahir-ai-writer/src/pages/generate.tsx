@@ -301,14 +301,15 @@ export default function Generate() {
                     Keywords per Site
                     <span className="font-normal text-gray-400">(one keyword per line, per site)</span>
                   </Label>
-                  {sites.length === 0 ? (
+                  {selectedSites.length === 0 ? (
                     <div className="py-8 text-center text-gray-400 text-sm border border-dashed rounded-lg">
-                      <Globe className="w-8 h-8 mx-auto mb-2 opacity-30" />
-                      No connected sites found. Add a site first.
+                      <LayoutGrid className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                      <p className="font-medium">No sites selected</p>
+                      <p className="mt-1 text-xs">Select sites below to add keywords for each</p>
                     </div>
                   ) : (
                     <div className="space-y-3">
-                      {sites.map(site => {
+                      {sites.filter(s => selectedSites.includes(s.id)).map(site => {
                         const kwStr = siteKeywords[site.id] || "";
                         const kwCount = kwStr.split("\n").map((k: string) => k.trim()).filter(Boolean).length;
                         return (
@@ -475,9 +476,8 @@ export default function Generate() {
             </CardContent>
           </Card>
 
-          {/* ── Select Sites (hidden in bulk mode) ── */}
-          {!bulkMode && (
-            <Card className="shadow-sm">
+          {/* ── Select Sites ── */}
+          <Card className="shadow-sm">
               <CardHeader className="pb-3 border-b border-gray-100 dark:border-zinc-800">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
@@ -533,8 +533,7 @@ export default function Generate() {
                   )}
                 </div>
               </CardContent>
-            </Card>
-          )}
+          </Card>
         </div>
 
         {/* ── Right: Generate card ── */}
