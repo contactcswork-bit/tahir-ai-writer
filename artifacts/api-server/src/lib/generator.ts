@@ -434,9 +434,10 @@ async function callAI(keyword: string, language: string, wordCount: number, sett
   const model = settings?.longcatModel || "LongCat-Flash-Thinking-2601";
   const url = "https://api.longcat.chat/openai/v1/chat/completions";
 
-  const langInstruction = language.toLowerCase() === "english"
+  const isEnglish = language.toLowerCase() === "english";
+  const langInstruction = isEnglish
     ? "Write entirely in English."
-    : `Write ENTIRELY in ${language}. Every word — title, meta description, tags, category, and article body — must be in ${language}. Do not use English anywhere.`;
+    : `Write ENTIRELY in ${language}. Every word — title, meta description, tags, category, and article body — must be in ${language}. The focus keyword "${keyword}" may appear in its original form since it is the SEO target term, but all surrounding words, sentences, and headings must be in ${language}. Do not mix in random English words outside of the keyword itself.`;
 
   // Use generous tokens — no credit limits, prioritize quality
   const targetTokens = Math.max(Math.round(wordCount * 3.5), 8000);
@@ -483,8 +484,9 @@ Respond with ONLY a valid JSON object — no text before or after, no markdown f
 ${titleStyle}
 
 TITLE RULES:
-- Must include the exact phrase "${keyword}" somewhere natural in the title
+- Must include the exact phrase "${keyword}" somewhere natural in the title (it may appear in its original form)
 - Under 70 characters
+- ${isEnglish ? "" : `CRITICAL: Write the title in ${language} — the format patterns above are English examples showing structure only; translate the surrounding words into ${language}. Only "${keyword}" itself may stay in its original form.`}
 - BANNED words/phrases — never use these: "Ultimate Guide", "Complete Guide", "Everything You Need", "Best Practices", "Proven Strategies", "Expert Tips", "In Today's World", "Unleash", "Dive Into", "Game-Changer", "Comprehensive", "In-Depth"
 - Do NOT start with "Best [keyword]..." — that pattern is overused and generic
 - Do NOT write "[Keyword]: [Generic Suffix]" colon-separator format unless it's genuinely interesting
@@ -581,24 +583,34 @@ Return ONLY the JSON object, nothing else.`;
   if (!Array.isArray(parsed.tags)) parsed.tags = [keyword];
   if (!parsed.category) parsed.category = "General";
 
-  // Safety net: guarantee the EXACT keyword appears verbatim in the title
+  // Safety net: guarantee the EXACT keyword appears somewhere in the title
   const originalTitle = parsed.title;
-  if (!parsed.title.toLowerCase().includes(keyword.toLowerCase())) {
-    const kw = keyword.charAt(0).toUpperCase() + keyword.slice(1);
-    // Natural, varied fallback patterns — nothing generic
-    const naturalFallbacks = [
-      `What Nobody Tells You About ${kw}`,
-      `The Truth About ${kw} (Without the Hype)`,
-      `Is ${kw} Actually Worth It? An Honest Look`,
-      `Why Most People Get ${kw} Wrong`,
-      `${kw}: What Actually Works and What Doesn't`,
-      `Stop Overthinking ${kw} — Here's What Matters`,
-      `How to Get the Most From ${kw}`,
-      `The ${kw} Mistakes You Don't Know You're Making`,
-      `${kw} Explained: No Fluff, Just What Works`,
-    ];
-    parsed.title = naturalFallbacks[Math.floor(Math.random() * naturalFallbacks.length)];
-    logger.info({ original: originalTitle, forced: parsed.title, keyword }, "AI omitted exact keyword — applied natural fallback title");
+  const titleHasKeyword = parsed.title.toLowerCase().includes(keyword.toLowerCase());
+  if (!titleHasKeyword) {
+    if (isEnglish) {
+      // English: apply natural varied fallback patterns
+      const kw = keyword.charAt(0).toUpperCase() + keyword.slice(1);
+      const naturalFallbacks = [
+        `What Nobody Tells You About ${kw}`,
+        `The Truth About ${kw} (Without the Hype)`,
+        `Is ${kw} Actually Worth It? An Honest Look`,
+        `Why Most People Get ${kw} Wrong`,
+        `${kw}: What Actually Works and What Doesn't`,
+        `Stop Overthinking ${kw} — Here's What Matters`,
+        `How to Get the Most From ${kw}`,
+        `The ${kw} Mistakes You Don't Know You're Making`,
+        `${kw} Explained: No Fluff, Just What Works`,
+      ];
+      parsed.title = naturalFallbacks[Math.floor(Math.random() * naturalFallbacks.length)];
+    } else {
+      // Non-English: the AI correctly wrote the title in the target language and likely
+      // translated the keyword — only override if the title is empty or suspiciously short
+      if (!parsed.title || parsed.title.trim().length < 5) {
+        parsed.title = keyword; // Last resort: just use the keyword itself
+      }
+      // Otherwise keep the AI's foreign-language title as-is
+    }
+    logger.info({ original: originalTitle, final: parsed.title, keyword, language }, "Title keyword check — applied safety logic");
   }
 
   if (parsed.metaDescription.length > 155) {
