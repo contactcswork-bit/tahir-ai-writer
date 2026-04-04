@@ -157,4 +157,61 @@ Example format: ["keyword one here", "another keyword phrase", ...]`;
   }
 });
 
+// Smart keyword duplicate checker — scans WP sites for existing articles
+router.post("/generate/check-keywords", requireAuth, async (req, res): Promise<void> => {
+  const { keywords, siteIds } = req.body as { keywords?: string[]; siteIds?: number[] };
+
+  if (!keywords?.length || !siteIds?.length) {
+    res.status(400).json({ error: "keywords and siteIds are required." });
+    return;
+  }
+
+  // Fetch site credentials
+  const sites = await db.select().from(sitesTable).where(inArray(sitesTable.id, siteIds));
+
+  const results = await Promise.all(
+    sites.map(async (site) => {
+      const siteUrl = site.url.replace(/\/$/, "");
+      const credentials = Buffer.from(`${site.username}:${site.applicationPassword}`).toString("base64");
+
+      // Check all keywords in parallel for this site
+      const checks = await Promise.all(
+        keywords.map(async (keyword) => {
+          try {
+            const searchRes = await fetch(
+              `${siteUrl}/wp-json/wp/v2/posts?search=${encodeURIComponent(keyword)}&per_page=5&_fields=id,title,slug&status=any`,
+              { headers: { Authorization: `Basic ${credentials}` }, signal: AbortSignal.timeout(8000) }
+            );
+            if (!searchRes.ok) return { keyword, exists: false };
+
+            const posts: any[] = await searchRes.json();
+            if (!Array.isArray(posts) || posts.length === 0) return { keyword, exists: false };
+
+            const kwLower = keyword.toLowerCase();
+            // Consider existing if any result title or slug contains the keyword
+            const exists = posts.some((p: any) => {
+              const title = (p?.title?.rendered || "").toLowerCase();
+              const slug = (p?.slug || "").toLowerCase();
+              return title.includes(kwLower) || slug.includes(kwLower.replace(/\s+/g, "-"));
+            });
+
+            return { keyword, exists };
+          } catch {
+            return { keyword, exists: false };
+          }
+        })
+      );
+
+      return {
+        siteId: site.id,
+        siteName: site.name,
+        existing: checks.filter((c) => c.exists).map((c) => c.keyword),
+        missing: checks.filter((c) => !c.exists).map((c) => c.keyword),
+      };
+    })
+  );
+
+  res.json({ results });
+});
+
 export default router;
