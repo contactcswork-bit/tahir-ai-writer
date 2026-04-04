@@ -12,7 +12,7 @@ import { useToast } from "@/hooks/use-toast";
 import { toastError } from "@/lib/errors";
 import {
   PenLine, Zap, List, Sparkles, Calendar, FileText,
-  Loader2, Pin, Globe, Clock, Send, Lightbulb, Copy, Check, PlusCircle
+  Loader2, Pin, Globe, Clock, Send, Lightbulb, Copy, Check, PlusCircle, LayoutGrid
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
@@ -35,6 +35,9 @@ export default function Generate() {
   const [selectedSites, setSelectedSites] = useState<number[]>([]);
   const [publishNow, setPublishNow] = useState(false);
   const [queueItems, setQueueItems] = useState<QueueItem[]>([]);
+  // Bulk per-site mode
+  const [bulkMode, setBulkMode] = useState(false);
+  const [siteKeywords, setSiteKeywords] = useState<Record<number, string>>({});
   // Keyword suggestions
   const [niche, setNiche] = useState("");
   const [suggestLoading, setSuggestLoading] = useState(false);
@@ -95,6 +98,53 @@ export default function Generate() {
   };
 
   const handleGenerate = async () => {
+    if (bulkMode) {
+      // Bulk mode: each site has its own keywords
+      const sitesToGenerate = sites.filter(site => {
+        const kwStr = siteKeywords[site.id] || "";
+        return kwStr.split("\n").map((k: string) => k.trim()).filter(Boolean).length > 0;
+      });
+
+      if (sitesToGenerate.length === 0) {
+        toast({ title: "Validation Error", description: "Enter at least one keyword for at least one site", variant: "destructive" });
+        return;
+      }
+
+      const totalArticles = sitesToGenerate.reduce((sum, site) => {
+        const kwList = (siteKeywords[site.id] || "").split("\n").map((k: string) => k.trim()).filter(Boolean);
+        return sum + kwList.length;
+      }, 0);
+
+      try {
+        for (const site of sitesToGenerate) {
+          const kwList = (siteKeywords[site.id] || "").split("\n").map((k: string) => k.trim()).filter(Boolean);
+          await generateMutation.mutateAsync({
+            data: {
+              keywords: kwList,
+              siteIds: [site.id],
+              language,
+              wordCount: parseInt(wordCount),
+              imageSource,
+              imageUrl: imageSource === "url" ? imageUrl : undefined,
+              scheduledAt: scheduleEnabled && scheduledAt ? scheduledAt : undefined,
+              publishNow,
+            }
+          });
+        }
+        toast({
+          title: "Generation started!",
+          description: `${totalArticles} article${totalArticles > 1 ? "s" : ""} queued across ${sitesToGenerate.length} site${sitesToGenerate.length > 1 ? "s" : ""}. They will be ${publishNow ? "published" : "saved as drafts"} when ready.`
+        });
+        setSiteKeywords({});
+        refetchStatus();
+        setTimeout(fetchQueue, 1000);
+      } catch (e: unknown) {
+        toast(toastError(e));
+      }
+      return;
+    }
+
+    // Normal mode: shared keywords across selected sites
     if (keywordList.length === 0) {
       toast({ title: "Validation Error", description: "Please enter at least one keyword", variant: "destructive" });
       return;
@@ -201,31 +251,97 @@ export default function Generate() {
         <div className="flex-1 min-w-0 space-y-4">
           <Card className="shadow-sm">
             <CardHeader className="pb-4 border-b border-gray-100 dark:border-zinc-800">
-              <CardTitle className="text-lg">Article Settings</CardTitle>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5 font-normal">
-                Configure your content generation
-              </p>
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <CardTitle className="text-lg">Article Settings</CardTitle>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5 font-normal">
+                    Configure your content generation
+                  </p>
+                </div>
+                {/* Per-Site Keywords toggle */}
+                <div className="flex items-center gap-2.5 shrink-0 mt-0.5">
+                  <div className="text-right">
+                    <p className="text-sm font-medium flex items-center gap-1.5 justify-end">
+                      <LayoutGrid className="w-3.5 h-3.5 text-primary" />
+                      Per-Site Mode
+                    </p>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      {bulkMode ? "Each site gets its own keywords" : "Shared keywords for all sites"}
+                    </p>
+                  </div>
+                  <Switch checked={bulkMode} onCheckedChange={setBulkMode} />
+                </div>
+              </div>
             </CardHeader>
 
             <CardContent className="pt-5 space-y-5">
 
-              {/* Keywords textarea */}
-              <div className="space-y-2">
-                <Label className="flex items-center gap-2 text-sm font-medium">
-                  <List className="w-4 h-4 text-gray-500" />
-                  Keywords / Topics * <span className="font-normal text-gray-400">(one per line)</span>
-                </Label>
-                <Textarea
-                  rows={5}
-                  value={keywords}
-                  onChange={(e) => setKeywords(e.target.value)}
-                  placeholder={"best laptops 2026\nhealthy breakfast recipes\ndigital marketing tips\nhome workout routine"}
-                  className="font-mono text-sm resize-y bg-white dark:bg-zinc-950"
-                />
-                <p className="text-xs text-gray-400">
-                  Enter one keyword per line • Each keyword will generate unique articles for all selected sites
-                </p>
-              </div>
+              {/* Keywords section — normal or per-site */}
+              {!bulkMode ? (
+                <div className="space-y-2">
+                  <Label className="flex items-center gap-2 text-sm font-medium">
+                    <List className="w-4 h-4 text-gray-500" />
+                    Keywords / Topics * <span className="font-normal text-gray-400">(one per line)</span>
+                  </Label>
+                  <Textarea
+                    rows={5}
+                    value={keywords}
+                    onChange={(e) => setKeywords(e.target.value)}
+                    placeholder={"best laptops 2026\nhealthy breakfast recipes\ndigital marketing tips\nhome workout routine"}
+                    className="font-mono text-sm resize-y bg-white dark:bg-zinc-950"
+                  />
+                  <p className="text-xs text-gray-400">
+                    Enter one keyword per line • Each keyword will generate unique articles for all selected sites
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <Label className="flex items-center gap-2 text-sm font-medium">
+                    <LayoutGrid className="w-4 h-4 text-primary" />
+                    Keywords per Site
+                    <span className="font-normal text-gray-400">(one keyword per line, per site)</span>
+                  </Label>
+                  {sites.length === 0 ? (
+                    <div className="py-8 text-center text-gray-400 text-sm border border-dashed rounded-lg">
+                      <Globe className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                      No connected sites found. Add a site first.
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {sites.map(site => {
+                        const kwStr = siteKeywords[site.id] || "";
+                        const kwCount = kwStr.split("\n").map((k: string) => k.trim()).filter(Boolean).length;
+                        return (
+                          <div key={site.id} className="rounded-xl border border-gray-200 dark:border-zinc-800 overflow-hidden">
+                            <div className="flex items-center gap-3 px-4 py-2.5 bg-gray-50/70 dark:bg-zinc-900/50 border-b border-gray-100 dark:border-zinc-800">
+                              <div className="w-2 h-2 rounded-full bg-primary/60 shrink-0" />
+                              <div className="flex-1 min-w-0">
+                                <span className="text-sm font-medium truncate block">{site.name}</span>
+                                <span className="text-xs text-gray-400 truncate block">{site.url}</span>
+                              </div>
+                              {kwCount > 0 && (
+                                <span className="text-xs font-medium text-primary bg-primary/10 px-2 py-0.5 rounded-full shrink-0">
+                                  {kwCount} keyword{kwCount !== 1 ? "s" : ""}
+                                </span>
+                              )}
+                            </div>
+                            <Textarea
+                              rows={3}
+                              value={kwStr}
+                              onChange={(e) => setSiteKeywords(prev => ({ ...prev, [site.id]: e.target.value }))}
+                              placeholder={`Keywords for ${site.name}\nbest laptops 2026\nhow to invest in stocks`}
+                              className="font-mono text-sm resize-y bg-white dark:bg-zinc-950 border-0 rounded-none focus-visible:ring-0 focus-visible:ring-offset-0"
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <p className="text-xs text-gray-400">
+                    Enter one keyword per line for each site • Leave empty to skip that site
+                  </p>
+                </div>
+              )}
 
               {/* Language + Word Count */}
               <div className="grid grid-cols-2 gap-4">
@@ -359,64 +475,66 @@ export default function Generate() {
             </CardContent>
           </Card>
 
-          {/* ── Select Sites ── */}
-          <Card className="shadow-sm">
-            <CardHeader className="pb-3 border-b border-gray-100 dark:border-zinc-800">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div>
-                  <CardTitle className="text-base">Select Sites</CardTitle>
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5 font-normal">
-                    {sites.length} connected site{sites.length !== 1 ? "s" : ""} available
-                  </p>
-                </div>
-                <div className="flex gap-2 shrink-0">
-                  <Button variant="outline" size="sm" onClick={handlePinAll} className="text-xs h-8">
-                    <Pin className="w-3.5 h-3.5 mr-1.5" />
-                    Select Pinned
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={handleSelectAll} className="text-xs h-8">
-                    {selectedSites.length === sites.length && sites.length > 0 ? "Deselect All" : "Select All"}
-                  </Button>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="pt-4">
-              <div className="grid gap-2 grid-cols-1 sm:grid-cols-2">
-                {sites.map(site => (
-                  <div
-                    key={site.id}
-                    onClick={() => toggleSite(site.id)}
-                    className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${
-                      selectedSites.includes(site.id)
-                        ? "border-primary bg-primary/5 ring-1 ring-primary/20"
-                        : "border-gray-200 dark:border-zinc-800 hover:border-primary/50"
-                    }`}
-                  >
-                    <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
-                      selectedSites.includes(site.id) ? "bg-primary border-primary text-white" : "border-gray-300 dark:border-zinc-600"
-                    }`}>
-                      {selectedSites.includes(site.id) && (
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="w-3 h-3">
-                          <polyline points="20 6 9 17 4 12" />
-                        </svg>
-                      )}
-                    </div>
-                    <div className="truncate flex-1">
-                      <div className="font-medium text-sm truncate">{site.name}</div>
-                      <div className="text-xs text-gray-500 truncate">{site.url}</div>
-                    </div>
-                    {site.isPinned && <Pin className="w-3 h-3 text-primary shrink-0" />}
+          {/* ── Select Sites (hidden in bulk mode) ── */}
+          {!bulkMode && (
+            <Card className="shadow-sm">
+              <CardHeader className="pb-3 border-b border-gray-100 dark:border-zinc-800">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <CardTitle className="text-base">Select Sites</CardTitle>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5 font-normal">
+                      {sites.length} connected site{sites.length !== 1 ? "s" : ""} available
+                    </p>
                   </div>
-                ))}
-                {sites.length === 0 && (
-                  <div className="col-span-full py-10 text-center text-gray-400 text-sm">
-                    <Globe className="w-8 h-8 mx-auto mb-2 opacity-30" />
-                    No connected sites found. Add a site first.
+                  <div className="flex gap-2 shrink-0">
+                    <Button variant="outline" size="sm" onClick={handlePinAll} className="text-xs h-8">
+                      <Pin className="w-3.5 h-3.5 mr-1.5" />
+                      Select Pinned
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={handleSelectAll} className="text-xs h-8">
+                      {selectedSites.length === sites.length && sites.length > 0 ? "Deselect All" : "Select All"}
+                    </Button>
                   </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
+                </div>
+              </CardHeader>
+              <CardContent className="pt-4">
+                <div className="grid gap-2 grid-cols-1 sm:grid-cols-2">
+                  {sites.map(site => (
+                    <div
+                      key={site.id}
+                      onClick={() => toggleSite(site.id)}
+                      className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${
+                        selectedSites.includes(site.id)
+                          ? "border-primary bg-primary/5 ring-1 ring-primary/20"
+                          : "border-gray-200 dark:border-zinc-800 hover:border-primary/50"
+                      }`}
+                    >
+                      <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
+                        selectedSites.includes(site.id) ? "bg-primary border-primary text-white" : "border-gray-300 dark:border-zinc-600"
+                      }`}>
+                        {selectedSites.includes(site.id) && (
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="w-3 h-3">
+                            <polyline points="20 6 9 17 4 12" />
+                          </svg>
+                        )}
+                      </div>
+                      <div className="truncate flex-1">
+                        <div className="font-medium text-sm truncate">{site.name}</div>
+                        <div className="text-xs text-gray-500 truncate">{site.url}</div>
+                      </div>
+                      {site.isPinned && <Pin className="w-3 h-3 text-primary shrink-0" />}
+                    </div>
+                  ))}
+                  {sites.length === 0 && (
+                    <div className="col-span-full py-10 text-center text-gray-400 text-sm">
+                      <Globe className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                      No connected sites found. Add a site first.
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
 
         {/* ── Right: Generate card ── */}
@@ -430,17 +548,49 @@ export default function Generate() {
             </CardHeader>
             <CardContent className="pt-5 space-y-5">
               {/* Stats */}
-              <div className="flex justify-around">
-                <div className="text-center">
-                  <div className="text-4xl font-bold text-gray-900 dark:text-gray-100">{keywordList.length}</div>
-                  <div className="text-xs text-gray-500 mt-1">Keywords</div>
-                </div>
-                <div className="w-px bg-gray-200 dark:bg-zinc-700" />
-                <div className="text-center">
-                  <div className="text-4xl font-bold text-gray-900 dark:text-gray-100">{selectedSites.length}</div>
-                  <div className="text-xs text-gray-500 mt-1">Sites</div>
-                </div>
-              </div>
+              {bulkMode ? (() => {
+                const bulkSitesWithKw = sites.filter(s => (siteKeywords[s.id] || "").split("\n").map((k: string) => k.trim()).filter(Boolean).length > 0);
+                const bulkTotal = bulkSitesWithKw.reduce((sum, s) => sum + (siteKeywords[s.id] || "").split("\n").map((k: string) => k.trim()).filter(Boolean).length, 0);
+                return (
+                  <>
+                    <div className="flex justify-around">
+                      <div className="text-center">
+                        <div className="text-4xl font-bold text-gray-900 dark:text-gray-100">{bulkTotal}</div>
+                        <div className="text-xs text-gray-500 mt-1">Keywords</div>
+                      </div>
+                      <div className="w-px bg-gray-200 dark:bg-zinc-700" />
+                      <div className="text-center">
+                        <div className="text-4xl font-bold text-gray-900 dark:text-gray-100">{bulkSitesWithKw.length}</div>
+                        <div className="text-xs text-gray-500 mt-1">Sites</div>
+                      </div>
+                    </div>
+                    {bulkTotal > 0 && (
+                      <p className="text-xs text-center text-gray-400">
+                        {bulkTotal} article{bulkTotal !== 1 ? "s" : ""} will be queued across {bulkSitesWithKw.length} site{bulkSitesWithKw.length !== 1 ? "s" : ""}
+                      </p>
+                    )}
+                  </>
+                );
+              })() : (
+                <>
+                  <div className="flex justify-around">
+                    <div className="text-center">
+                      <div className="text-4xl font-bold text-gray-900 dark:text-gray-100">{keywordList.length}</div>
+                      <div className="text-xs text-gray-500 mt-1">Keywords</div>
+                    </div>
+                    <div className="w-px bg-gray-200 dark:bg-zinc-700" />
+                    <div className="text-center">
+                      <div className="text-4xl font-bold text-gray-900 dark:text-gray-100">{selectedSites.length}</div>
+                      <div className="text-xs text-gray-500 mt-1">Sites</div>
+                    </div>
+                  </div>
+                  {keywordList.length > 0 && selectedSites.length > 0 && (
+                    <p className="text-xs text-center text-gray-400">
+                      {keywordList.length * selectedSites.length} total article{keywordList.length * selectedSites.length !== 1 ? "s" : ""} will be queued
+                    </p>
+                  )}
+                </>
+              )}
 
               {/* Generate button */}
               <Button
@@ -456,12 +606,6 @@ export default function Generate() {
                 )}
                 {publishNow ? "Generate & Publish" : "Generate Drafts"}
               </Button>
-
-              {keywordList.length > 0 && selectedSites.length > 0 && (
-                <p className="text-xs text-center text-gray-400">
-                  {keywordList.length * selectedSites.length} total article{keywordList.length * selectedSites.length !== 1 ? "s" : ""} will be queued
-                </p>
-              )}
             </CardContent>
           </Card>
 
